@@ -1,0 +1,67 @@
+# Built application files
+*.apk
+*.aab
+*.aar
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+build/
+app/build/
+.gradle/
+reports/
+
+# Gradle files
+.gradle/
+buildOutputCleanup/
+
+# Android Studio and IntelliJ IDEA
+.idea/
+*.iml
+local.properties
+.navigation/
+captures/
+output.json
+.cxx/
+
+# VS Code
+.vscode/
+
+# Environment and secrets
+.env
+*.env
+*.token
+*.key
+*.pem
+*.p12
+
+# Keystore files
+*.jks
+*.keystore
+
+# Node / JS (mock server, etc.)
+node_modules/
+npm-debug.log*
+
+# Python (mock gateway, scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+scripts/_tmp/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Temporary workspace files (clean up after task)
+tmp/*
+!tmp/.gitkeep
