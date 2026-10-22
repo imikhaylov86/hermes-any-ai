@@ -1,7 +1,36 @@
 param(
-    [string]$ApkPath = "app/build/outputs/apk/debug/app-debug.apk",
-    [string]$PackageName = "com.hermes.mobile.debug"
+    [string]$ApkPath = "",
+    [string]$PackageName = ""
 )
+
+if (-not $ApkPath) {
+    $releaseApk = Get-ChildItem -Path "app/build/outputs/apk/release" -Filter "HermesAnyAI_v*.apk" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (-not $releaseApk) {
+        $releaseApk = Get-ChildItem -Path "app/build/outputs/apk/release" -Filter "*.apk" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    }
+
+    if ($releaseApk) {
+        $ApkPath = $releaseApk.FullName
+        if (-not $PackageName) { $PackageName = "com.hermes.mobile" }
+    } else {
+        $debugApk = Get-ChildItem -Path "app/build/outputs/apk/debug" -Filter "HermesAnyAI_v*.apk" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if (-not $debugApk) {
+            $debugApk = Get-ChildItem -Path "app/build/outputs/apk/debug" -Filter "*.apk" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        }
+        if ($debugApk) {
+            $ApkPath = $debugApk.FullName
+            if (-not $PackageName) { $PackageName = "com.hermes.mobile.debug" }
+        }
+    }
+}
+
+if (-not $PackageName) {
+    if ($ApkPath -match "debug") {
+        $PackageName = "com.hermes.mobile.debug"
+    } else {
+        $PackageName = "com.hermes.mobile"
+    }
+}
 
 $adb = "adb"
 if (Get-Command adb -ErrorAction SilentlyContinue) {
@@ -26,6 +55,9 @@ if (-not (Test-Path $ApkPath)) {
     Write-Error "APK file not found: $ApkPath"
     exit 1
 }
+
+Write-Host ">>> Target APK: $ApkPath" -ForegroundColor Yellow
+Write-Host ">>> Target Package: $PackageName" -ForegroundColor Yellow
 
 Write-Host ">>> [2/4] Installing APK STRICTLY to User 0 (Personal profile only)..." -ForegroundColor Cyan
 & $adb install -r --user 0 $ApkPath

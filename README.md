@@ -9,11 +9,12 @@
   [![Jetpack Compose](https://img.shields.io/badge/Compose-BOM_2024.10-blue.svg)](https://developer.android.com/jetpack/compose)
   [![Android](https://img.shields.io/badge/Android-12.0+_(API_31+)-green.svg)](https://developer.android.com)
   [![License](https://img.shields.io/badge/License-Apache_2.0-orange.svg)](LICENSE)
+  [![Changelog](https://img.shields.io/badge/Changelog-v1.0.1-informational.svg)](CHANGELOG.md)
   [![i18n](https://img.shields.io/badge/Languages-EN%20%7C%20RU-success.svg)](#-internationalization--languages)
 
   <br/>
   
-  **[English](#-english)** • **[Русский](#-русский)**
+  **[English](#-english)** • **[Русский](#-русский)** • **[Changelog](CHANGELOG.md)**
 </div>
 
 ---
@@ -115,7 +116,8 @@ cd hermes-any-ai
 .\gradlew.bat testDebugUnitTest assembleDebug
 ```
 The resulting APK will be located at:
-`app/build/outputs/apk/debug/app-debug.apk`
+* Release: `app/build/outputs/apk/release/HermesAnyAI_v1.0.1.apk`
+* Debug: `app/build/outputs/apk/debug/HermesAnyAI_v1.0.1-debug.apk`
 
 #### Installing to Physical Device (User 0 Isolated)
 Use the included PowerShell deployment script that strictly targets the personal profile (User 0):
@@ -242,7 +244,8 @@ cd hermes-any-ai
 .\gradlew.bat testDebugUnitTest assembleDebug
 ```
 Собранный APK будет находиться по пути:
-`app/build/outputs/apk/debug/app-debug.apk`
+* Release: `app/build/outputs/apk/release/HermesAnyAI_v1.0.1.apk`
+* Debug: `app/build/outputs/apk/debug/HermesAnyAI_v1.0.1-debug.apk`
 
 #### Установка на физическое устройство (изоляция User 0)
 Используйте входящий в комплект PowerShell-скрипт, разворачивающий приложение строго в личный профиль (User 0):
