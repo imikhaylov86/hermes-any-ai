@@ -148,6 +148,7 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         onCheckForUpdates = {
+                            showSettingsDialogFromDrawer = false
                             chatViewModel.checkForUpdates(isManual = true)
                         },
                         currentLanguage = appLanguage,
