@@ -36,6 +36,9 @@ class MobileWebSocketClient(
 ) {
     private val tag = "MobileWebSocketClient"
 
+    /** Вызывается, когда реальный сессионный токен получен из dashboard (fallback при 403). */
+    var onSessionTokenRecovered: ((String) -> Unit)? = null
+
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -161,9 +164,14 @@ class MobileWebSocketClient(
                     }
 
                     override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
-                        Log.w(tag, "WebSocket onFailure: ${t.message}")
+                        Log.w(tag, "WebSocket onFailure: ${t.message} (code=${response?.code})")
                         webSocket = null
-                        if (!isIntentionallyClosed) {
+                        // 403 = отклонён токен: сервер, вероятно, поднялся без env-патча
+                        // (будущая версия hermes-agent). Пробуем забрать реальный токен из HTML
+                        // SPA dashboard и подключиться с ним.
+                        if (response?.code == 403) {
+                            fetchSessionTokenFromDashboardAndRetry()
+                        } else if (!isIntentionallyClosed) {
                             _connectionState.value = ConnectionState.RECONNECTING
                         } else {
                             _connectionState.value = ConnectionState.FAILED
@@ -199,6 +207,43 @@ class MobileWebSocketClient(
         val helloDto = ClientHelloDto(deviceId = deviceId)
         val frameText = json.encodeToString(ClientHelloDto.serializer(), helloDto)
         webSocket?.send(frameText)
+    }
+
+    /**
+     * Fallback при 403: GET корня dashboard, извлечение сессионного токена
+     * из инжекта window.__HERMES_SESSION_TOKEN__="..." и обновление endpoint.
+     * Если токен не найден — обычный цикл переподключения продолжится.
+     */
+    private fun fetchSessionTokenFromDashboardAndRetry() {
+        scope.launch {
+            try {
+                val httpUrl = endpointUrl
+                    .replace("ws://", "http://")
+                    .replace("wss://", "https://")
+                    .substringBefore("/api/ws")
+                    .substringBefore("?")
+                    .trimEnd('/')
+                val request = Request.Builder().url("$httpUrl/").build()
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful && response.body != null) {
+                        val html = response.body!!.string()
+                        val m = Regex("window\\.__HERMES_SESSION_TOKEN__=\"([^\"]+)\"").find(html)
+                        val token = m?.groupValues?.get(1)
+                        if (!token.isNullOrBlank() && !endpointUrl.contains("token=$token")) {
+                            Log.i(tag, "Fetched live session token from dashboard, updating endpoint")
+                            val base = endpointUrl.substringBefore("token=")
+                            endpointUrl = "$base token=$token".replace(" ", "")
+                            onSessionTokenRecovered?.invoke(token)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "Session token fetch failed: ${e.message}")
+            }
+            if (!isIntentionallyClosed) {
+                _connectionState.value = ConnectionState.RECONNECTING
+            }
+        }
     }
 
     private fun sendSessionCreate() {

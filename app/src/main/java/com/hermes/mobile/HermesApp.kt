@@ -64,6 +64,12 @@ class HermesApp : Application() {
             sessionToken = settingsManager.getSessionToken()
         )
 
+        // Fallback: если сервер поднялся без env-патча (случайный токен), WS-клиент
+        // заберёт живой токен из HTML dashboard и синхронизирует его с REST-клиентом
+        webSocketClient.onSessionTokenRecovered = { token ->
+            restClient.updateSessionToken(token)
+        }
+
         chatRepository = ChatRepositoryImpl(
             messageDao = database.messageDao(),
             sessionDao = database.sessionDao(),
