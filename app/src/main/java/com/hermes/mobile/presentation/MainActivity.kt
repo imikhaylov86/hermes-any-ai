@@ -191,6 +191,10 @@ class MainActivity : ComponentActivity() {
                             chatViewModel.startTermuxDaemon(context)
                         },
                         onReconnect = { chatViewModel.reconnect() },
+                        onOpenWizard = {
+                            showTermuxStatusDialog = false
+                            showOnboardingDialog = true
+                        },
                         onDismiss = { showTermuxStatusDialog = false }
                     )
                 }

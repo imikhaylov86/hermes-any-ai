@@ -162,6 +162,7 @@ interface AppStrings {
     val termuxSubtitle: String
     val termuxProtocolVersion: String
     val termuxUpdateBtn: String
+    val termuxOpenWizardBtn: String
     val termuxUpdating: String
     val termuxUpdateSuccess: String
     val termuxDaemonStarting: String
@@ -283,6 +284,38 @@ interface AppStrings {
     val onboardingStep1Desc: String
     val onboardingStep2Title: String
     val onboardingStep2Desc: String
+
+    // Onboarding Wizard
+    val onboardingWizardStep1: String
+    val onboardingWizardStep2: String
+    val onboardingWizardStep3: String
+    val onboardingWizardModeLocalTitle: String
+    val onboardingWizardModeLocalDesc: String
+    val onboardingWizardModeRemoteTitle: String
+    val onboardingWizardModeRemoteDesc: String
+    val onboardingWizardStartLocalBtn: String
+    val onboardingWizardTermuxFound: String
+    val onboardingWizardTermuxFoundDesc: String
+    val onboardingWizardTermuxMissing: String
+    val onboardingWizardTermuxWarning: String
+    val onboardingWizardDownloadFDroid: String
+    val onboardingWizardDownloadGitHub: String
+    val onboardingWizardNextStep: String
+    val onboardingWizardPrevStep: String
+    val onboardingWizardAction1Title: String
+    val onboardingWizardAction1Desc: String
+    val onboardingWizardAction2Title: String
+    val onboardingWizardAction2Desc: String
+    val onboardingWizardAction3Title: String
+    val onboardingWizardAction3Desc: String
+    val onboardingWizardDoneCommandBtn: String
+    val onboardingWizardLaunchTitle: String
+    val onboardingWizardLaunchDesc: String
+    val onboardingWizardLaunchSuccessTitle: String
+    val onboardingWizardLaunchSuccessDesc: String
+    val onboardingWizardStartChatBtn: String
+    val onboardingWizardManualLaunchHint: String
+    val onboardingWizardOpenTermuxManual: String
 
     // Tool Approval & Clarify
     val approvalTitle: String
@@ -451,6 +484,7 @@ class RuAppStrings : AppStrings {
     override val termuxSubtitle = "Локальный рантайм Hermes"
     override val termuxProtocolVersion = "Протокол Hermes: v1.0 • Совместимость: 100%"
     override val termuxUpdateBtn = "Обновить Hermes (pip upgrade)"
+    override val termuxOpenWizardBtn = "Мастер пошаговой настройки"
     override val termuxUpdating = "Запуск обновления в Termux..."
     override val termuxUpdateSuccess = "Команда обновления отправлена в Termux"
     override val termuxDaemonStarting = "Запуск агента в фоне..."
@@ -569,6 +603,37 @@ class RuAppStrings : AppStrings {
     override val onboardingStep1Desc = "В чистом Termux нет Hermes. Скопируйте команду, откройте Termux, вставьте её (долгий тап -> Paste) и нажмите Enter:"
     override val onboardingStep2Title = "Шаг 2: Фоновый запуск агента"
     override val onboardingStep2Desc = "После завершения установки в Termux нажмите кнопку ниже для старта в фоне:"
+
+    override val onboardingWizardStep1 = "Среда Termux"
+    override val onboardingWizardStep2 = "Настройка в Termux"
+    override val onboardingWizardStep3 = "Запуск и связь"
+    override val onboardingWizardModeLocalTitle = "Автономный агент на телефоне"
+    override val onboardingWizardModeLocalDesc = "ИИ работает локально в среде Termux без передачи ваших данных на сторонние серверы."
+    override val onboardingWizardModeRemoteTitle = "Удалённый сервер или ПК"
+    override val onboardingWizardModeRemoteDesc = "Подключение к уже запущенному агенту Hermes на домашнем компьютере или VPS."
+    override val onboardingWizardStartLocalBtn = "Настроить локально на телефоне"
+    override val onboardingWizardTermuxFound = "Termux обнаружен!"
+    override val onboardingWizardTermuxFoundDesc = "Среда Termux установлена на устройстве. Переходим к инициализации агента."
+    override val onboardingWizardTermuxMissing = "Termux не установлен"
+    override val onboardingWizardTermuxWarning = "Важно: устанавливайте Termux только из F-Droid или GitHub. Версия в Google Play устарела и не работает."
+    override val onboardingWizardDownloadFDroid = "Скачать из F-Droid"
+    override val onboardingWizardDownloadGitHub = "Скачать APK с GitHub"
+    override val onboardingWizardNextStep = "Продолжить"
+    override val onboardingWizardPrevStep = "Назад"
+    override val onboardingWizardAction1Title = "1. Скопируйте и откройте Termux"
+    override val onboardingWizardAction1Desc = "Нажмите синюю кнопку внизу. Команда настройки скопируется, и откроется терминал Termux."
+    override val onboardingWizardAction2Title = "2. Вставьте команду в Termux"
+    override val onboardingWizardAction2Desc = "Зажмите палец на чёрном экране Termux -> нажмите «PASTE» -> нажмите Enter (↵) на клавиатуре."
+    override val onboardingWizardAction3Title = "3. Дождитесь завершения"
+    override val onboardingWizardAction3Desc = "Termux установит Python и агента. Когда появится строка с символом «$», вернитесь сюда."
+    override val onboardingWizardDoneCommandBtn = "Команда выполнена, далее"
+    override val onboardingWizardLaunchTitle = "Запуск агента Hermes"
+    override val onboardingWizardLaunchDesc = "Окружение готово. Запустите фоновый демон Hermes для начала работы."
+    override val onboardingWizardLaunchSuccessTitle = "Связь установлена!"
+    override val onboardingWizardLaunchSuccessDesc = "Локальный агент Hermes запущен и готов к выполнению задач."
+    override val onboardingWizardStartChatBtn = "Перейти к диалогу"
+    override val onboardingWizardManualLaunchHint = "Если фоновый запуск заблокирован системой энергосбережения, откройте Termux и выполните команду: hermes run --mobile"
+    override val onboardingWizardOpenTermuxManual = "Открыть Termux"
 
     override val approvalTitle = "Требуется подтверждение действия"
     override val approvalParams = "Параметры:"
@@ -736,6 +801,7 @@ class EnAppStrings : AppStrings {
     override val termuxSubtitle = "Local Termux Runtime"
     override val termuxProtocolVersion = "Hermes Protocol: v1.0 • Compatibility: 100%"
     override val termuxUpdateBtn = "Update Hermes (pip upgrade)"
+    override val termuxOpenWizardBtn = "Step-by-step Setup Wizard"
     override val termuxUpdating = "Starting update in Termux..."
     override val termuxUpdateSuccess = "Update command sent to Termux"
     override val termuxDaemonStarting = "Starting agent in background..."
@@ -854,6 +920,37 @@ class EnAppStrings : AppStrings {
     override val onboardingStep1Desc = "Clean Termux does not include Hermes. Copy command, open Termux, paste (long tap -> Paste) and hit Enter:"
     override val onboardingStep2Title = "Step 2: Background Launch"
     override val onboardingStep2Desc = "After setup finishes in Termux, tap below to start the daemon in background:"
+
+    override val onboardingWizardStep1 = "Termux Environment"
+    override val onboardingWizardStep2 = "Termux Setup"
+    override val onboardingWizardStep3 = "Launch & Connect"
+    override val onboardingWizardModeLocalTitle = "Autonomous Agent on Phone"
+    override val onboardingWizardModeLocalDesc = "AI runs locally inside Termux environment without sending your data to third-party clouds."
+    override val onboardingWizardModeRemoteTitle = "Remote Server or PC"
+    override val onboardingWizardModeRemoteDesc = "Connect to an already running Hermes instance on your PC or VPS."
+    override val onboardingWizardStartLocalBtn = "Setup Locally on Phone"
+    override val onboardingWizardTermuxFound = "Termux detected!"
+    override val onboardingWizardTermuxFoundDesc = "Termux environment is installed. Proceeding to agent initialization."
+    override val onboardingWizardTermuxMissing = "Termux is not installed"
+    override val onboardingWizardTermuxWarning = "Important: install Termux from F-Droid or GitHub only. The Google Play version is deprecated and broken."
+    override val onboardingWizardDownloadFDroid = "Download from F-Droid"
+    override val onboardingWizardDownloadGitHub = "Download APK from GitHub"
+    override val onboardingWizardNextStep = "Continue"
+    override val onboardingWizardPrevStep = "Back"
+    override val onboardingWizardAction1Title = "1. Copy & Open Termux"
+    override val onboardingWizardAction1Desc = "Tap the blue button below. Setup command will be copied, and Termux will open automatically."
+    override val onboardingWizardAction2Title = "2. Paste command into Termux"
+    override val onboardingWizardAction2Desc = "Long-press the black Termux screen -> tap «PASTE» -> hit Enter (↵) on your keyboard."
+    override val onboardingWizardAction3Title = "3. Wait for completion"
+    override val onboardingWizardAction3Desc = "Termux will install Python and Hermes. When a new line with «$» appears, return here."
+    override val onboardingWizardDoneCommandBtn = "Command completed, Next"
+    override val onboardingWizardLaunchTitle = "Start Hermes Agent"
+    override val onboardingWizardLaunchDesc = "Environment is ready. Start the background Hermes daemon to begin."
+    override val onboardingWizardLaunchSuccessTitle = "Connected successfully!"
+    override val onboardingWizardLaunchSuccessDesc = "Local Hermes agent is active and ready for your requests."
+    override val onboardingWizardStartChatBtn = "Start Chatting"
+    override val onboardingWizardManualLaunchHint = "If background start is blocked by battery saver, open Termux and run: hermes run --mobile"
+    override val onboardingWizardOpenTermuxManual = "Open Termux"
 
     override val approvalTitle = "Action Approval Required"
     override val approvalParams = "Parameters:"

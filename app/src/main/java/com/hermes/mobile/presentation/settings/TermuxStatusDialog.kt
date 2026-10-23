@@ -35,6 +35,7 @@ fun TermuxStatusDialog(
     serverUrl: String,
     onStartDaemonInBackground: () -> Unit,
     onReconnect: () -> Unit,
+    onOpenWizard: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -234,6 +235,26 @@ fun TermuxStatusDialog(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(strings.onboardingInstallTermuxBtn, fontSize = 13.sp)
                     }
+                }
+
+                // Мастер первоначальной настройки
+                OutlinedButton(
+                    onClick = onOpenWizard,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = AppDimensions.ShapeButton
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = PrimaryIndigo
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = strings.termuxOpenWizardBtn,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
 
                 // Дополнительные кнопки управления
