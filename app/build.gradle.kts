@@ -21,6 +21,7 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+        manifestPlaceholders["appName"] = "Hermes Any AI"
     }
 
     installation {
@@ -44,10 +45,14 @@ android {
                 "proguard-rules.pro"
             )
             signingConfig = signingConfigs.getByName("release")
+            manifestPlaceholders["appName"] = "Hermes Any AI"
         }
         debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
             signingConfig = signingConfigs.getByName("release")
             isDebuggable = true
+            manifestPlaceholders["appName"] = "Hermes (Debug)"
         }
     }
 
@@ -86,8 +91,7 @@ android {
         outputs.all {
             val output = this as? com.android.build.gradle.internal.api.BaseVariantOutputImpl
             if (output != null) {
-                val suffix = if (variant.buildType.name == "release") "" else "-debug"
-                output.outputFileName = "HermesAnyAI_v${variant.versionName}${suffix}.apk"
+                output.outputFileName = "HermesAnyAI_v${variant.versionName}.apk"
             }
         }
     }

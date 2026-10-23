@@ -11,7 +11,11 @@ if (-not $ApkPath) {
 }
 
 if (-not $PackageName) {
-    $PackageName = "com.hermes.mobile"
+    if ($ApkPath -match "debug") {
+        $PackageName = "com.hermes.mobile.debug"
+    } else {
+        $PackageName = "com.hermes.mobile"
+    }
 }
 
 $adb = "adb"

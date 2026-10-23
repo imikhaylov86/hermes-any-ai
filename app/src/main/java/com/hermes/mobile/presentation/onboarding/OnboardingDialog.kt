@@ -231,6 +231,7 @@ fun OnboardingDialog(
                                 WizardStep.WELCOME -> {
                                     WelcomeStepContent(
                                         onStartLocal = {
+                                            onCustomServer("ws://127.0.0.1:8000/api/ws?token=hermes_mobile_local")
                                             currentStep = WizardStep.TERMUX_CHECK
                                         },
                                         onSelectRemote = { currentStep = WizardStep.REMOTE_SERVER },
@@ -1258,7 +1259,12 @@ private fun RemoteServerStepContent(
             shape = AppDimensions.ShapeButton,
             colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo)
         ) {
-            Text(appStrings.onboardingConnectServerBtn, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text(
+                text = appStrings.onboardingConnectServerBtn,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
         }
     }
 }
