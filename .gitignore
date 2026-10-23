@@ -45,6 +45,7 @@ output.json
 # Keystore files
 *.jks
 *.keystore
+!app/hermes-release.jks
 
 # Node / JS (mock server, etc.)
 node_modules/

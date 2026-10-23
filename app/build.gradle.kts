@@ -27,6 +27,15 @@ android {
         installOptions.addAll(listOf("--user", "0"))
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("hermes-release.jks")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -34,10 +43,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
-            applicationIdSuffix = ".debug"
+            signingConfig = signingConfigs.getByName("release")
             isDebuggable = true
         }
     }

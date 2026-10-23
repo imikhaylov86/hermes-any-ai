@@ -7,20 +7,11 @@ if (-not $ApkPath) {
     $latestApk = Get-ChildItem -Path "app/build/outputs/apk" -Recurse -Filter "*.apk" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($latestApk) {
         $ApkPath = $latestApk.FullName
-        if ($ApkPath -match "debug") {
-            $PackageName = "com.hermes.mobile.debug"
-        } else {
-            $PackageName = "com.hermes.mobile"
-        }
     }
 }
 
 if (-not $PackageName) {
-    if ($ApkPath -match "debug") {
-        $PackageName = "com.hermes.mobile.debug"
-    } else {
-        $PackageName = "com.hermes.mobile"
-    }
+    $PackageName = "com.hermes.mobile"
 }
 
 $adb = "adb"
