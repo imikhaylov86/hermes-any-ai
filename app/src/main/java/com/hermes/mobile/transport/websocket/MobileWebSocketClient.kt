@@ -30,16 +30,11 @@ sealed class WebSocketIncomingEvent {
 }
 
 class MobileWebSocketClient(
-    private var endpointUrl: String = "ws://127.0.0.1:8000/api/ws?token=hermes_mobile_local",
+    @Volatile private var endpointUrl: String = "ws://127.0.0.1:8000/api/ws?token=hermes_mobile_local",
     private val deviceId: String = "android_device_local",
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 ) {
-    fun updateEndpoint(newUrl: String) {
-        endpointUrl = newUrl
-        webSocket?.close(1000, "Endpoint changed")
-        webSocket = null
-        _connectionState.value = ConnectionState.CONNECTING
-    }
+    private val tag = "MobileWebSocketClient"
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -52,8 +47,13 @@ class MobileWebSocketClient(
         .readTimeout(0, TimeUnit.MILLISECONDS) // infinite for WS
         .build()
 
+    @Volatile
     private var webSocket: WebSocket? = null
+    @Volatile
     private var isIntentionallyClosed = false
+
+    private var connectionJob: Job? = null
+    private val connectionLock = Any()
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -75,77 +75,122 @@ class MobileWebSocketClient(
     private var isGenerationStopped = false
     private val stoppedMessageIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
-    fun connect() {
-        if (_connectionState.value == ConnectionState.READY || _connectionState.value == ConnectionState.CONNECTING) {
-            return
-        }
-        isIntentionallyClosed = false
-        startConnectionLoop()
+    fun updateEndpoint(newUrl: String) {
+        Log.i(tag, "Updating endpoint URL: $newUrl (was $endpointUrl)")
+        endpointUrl = newUrl
+        reconnect(force = true)
     }
 
-    private fun startConnectionLoop() {
-        scope.launch {
-            var backoffMs = 1000L
-            while (!isIntentionallyClosed) {
-                try {
-                    _connectionState.value = ConnectionState.CONNECTING
-                    val request = Request.Builder()
-                        .url(endpointUrl)
-                        .header("Sec-WebSocket-Protocol", "hermes.jsonrpc.v1")
-                        .build()
+    fun connect() {
+        if (_connectionState.value == ConnectionState.READY) {
+            Log.d(tag, "connect() ignored: already READY")
+            return
+        }
+        if (connectionJob?.isActive == true && _connectionState.value == ConnectionState.CONNECTING) {
+            Log.d(tag, "connect() ignored: already CONNECTING")
+            return
+        }
+        reconnect(force = false)
+    }
 
-                    val listener = object : WebSocketListener() {
-                        override fun onOpen(ws: WebSocket, response: Response) {
-                            webSocket = ws
-                            _connectionState.value = ConnectionState.AUTHENTICATING
-                            sendHello()
-                            if (endpointUrl.contains("/api/ws")) {
-                                sendSessionCreate()
-                            }
-                        }
+    fun reconnect(force: Boolean = true) {
+        synchronized(connectionLock) {
+            Log.i(tag, "reconnect(force=$force) called, canceling active connection job if any")
+            isIntentionallyClosed = false
+            connectionJob?.cancel()
+            connectionJob = null
 
-                        override fun onMessage(ws: WebSocket, text: String) {
-                            handleIncomingFrame(text)
-                        }
+            try {
+                webSocket?.close(1000, if (force) "Forced reconnect" else "Reconnecting")
+            } catch (e: Exception) {
+                Log.w(tag, "Error closing previous websocket: ${e.message}")
+            }
+            webSocket = null
 
-                        override fun onClosing(ws: WebSocket, code: Int, reason: String) {
-                            ws.close(1000, null)
-                        }
+            connectionJob = scope.launch {
+                runConnectionLoop(forceImmediate = force)
+            }
+        }
+    }
 
-                        override fun onClosed(ws: WebSocket, code: Int, reason: String) {
-                            webSocket = null
-                            if (!isIntentionallyClosed) {
-                                _connectionState.value = ConnectionState.RECONNECTING
-                            } else {
-                                _connectionState.value = ConnectionState.DISCONNECTED
-                            }
-                        }
+    private suspend fun runConnectionLoop(forceImmediate: Boolean) {
+        var backoffMs = if (forceImmediate) 500L else 1000L
 
-                        override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
-                            webSocket = null
-                            if (!isIntentionallyClosed) {
-                                _connectionState.value = ConnectionState.RECONNECTING
-                            } else {
-                                _connectionState.value = ConnectionState.FAILED
-                            }
+        while (!isIntentionallyClosed && currentCoroutineContext().isActive) {
+            val disconnectSignal = CompletableDeferred<Unit>()
+
+            try {
+                Log.i(tag, "Attempting connection to $endpointUrl")
+                _connectionState.value = ConnectionState.CONNECTING
+
+                val request = Request.Builder()
+                    .url(endpointUrl)
+                    .header("Sec-WebSocket-Protocol", "hermes.jsonrpc.v1")
+                    .build()
+
+                val listener = object : WebSocketListener() {
+                    override fun onOpen(ws: WebSocket, response: Response) {
+                        Log.i(tag, "WebSocket onOpen successfully connected to $endpointUrl")
+                        webSocket = ws
+                        backoffMs = 1000L
+                        _connectionState.value = ConnectionState.AUTHENTICATING
+                        sendHello()
+                        if (endpointUrl.contains("/api/ws")) {
+                            sendSessionCreate()
                         }
                     }
 
-                    okHttpClient.newWebSocket(request, listener)
-
-                    // Ожидаем в цикле состояния
-                    while (_connectionState.value != ConnectionState.RECONNECTING && !isIntentionallyClosed) {
-                        delay(500)
+                    override fun onMessage(ws: WebSocket, text: String) {
+                        handleIncomingFrame(text)
                     }
 
-                } catch (e: Exception) {
-                    _connectionState.value = ConnectionState.RECONNECTING
+                    override fun onClosing(ws: WebSocket, code: Int, reason: String) {
+                        Log.i(tag, "WebSocket onClosing: code=$code, reason=$reason")
+                        ws.close(1000, null)
+                    }
+
+                    override fun onClosed(ws: WebSocket, code: Int, reason: String) {
+                        Log.i(tag, "WebSocket onClosed: code=$code, reason=$reason, intentional=$isIntentionallyClosed")
+                        webSocket = null
+                        if (!isIntentionallyClosed) {
+                            _connectionState.value = ConnectionState.RECONNECTING
+                        } else {
+                            _connectionState.value = ConnectionState.DISCONNECTED
+                        }
+                        disconnectSignal.complete(Unit)
+                    }
+
+                    override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
+                        Log.w(tag, "WebSocket onFailure: ${t.message}")
+                        webSocket = null
+                        if (!isIntentionallyClosed) {
+                            _connectionState.value = ConnectionState.RECONNECTING
+                        } else {
+                            _connectionState.value = ConnectionState.FAILED
+                        }
+                        disconnectSignal.complete(Unit)
+                    }
                 }
 
-                if (!isIntentionallyClosed) {
-                    delay(backoffMs)
-                    backoffMs = (backoffMs * 2).coerceAtMost(10000L)
-                }
+                webSocket = okHttpClient.newWebSocket(request, listener)
+
+                // Безопасное асинхронное ожидание разрыва соединения без холостых циклов
+                disconnectSignal.await()
+
+            } catch (e: CancellationException) {
+                Log.i(tag, "runConnectionLoop cancelled")
+                throw e
+            } catch (e: Exception) {
+                Log.e(tag, "Error during connection attempt", e)
+                webSocket = null
+                _connectionState.value = ConnectionState.RECONNECTING
+            }
+
+            if (!isIntentionallyClosed && currentCoroutineContext().isActive) {
+                _connectionState.value = ConnectionState.RECONNECTING
+                Log.d(tag, "Waiting backoff ${backoffMs}ms before reconnecting...")
+                delay(backoffMs)
+                backoffMs = (backoffMs * 2).coerceAtMost(10000L)
             }
         }
     }
@@ -179,7 +224,8 @@ class MobileWebSocketClient(
     private fun handleIncomingFrame(text: String) {
         scope.launch {
             try {
-                android.util.Log.d("MobileWebSocketClient", "FRAME: $text")
+                Log.d(tag, "FRAME: $text")
+
                 // 1. Проверяем JSON-RPC формат (Hermes Agent Gateway)
                 if (text.contains("\"jsonrpc\"")) {
                     val root = json.parseToJsonElement(text).jsonObject
@@ -190,6 +236,8 @@ class MobileWebSocketClient(
                         val newSid = resultObj?.get("session_id")?.jsonPrimitive?.contentOrNull
                         if (newSid != null) {
                             hermesSessionId = newSid
+                            _connectionState.value = ConnectionState.READY
+                            _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = newSid, activeModel = activeModel ?: ""))
                             val pending = pendingPromptText
                             val pendingAtt = pendingPromptAttachments
                             if (pending != null || pendingAtt.isNotEmpty()) {
@@ -213,7 +261,18 @@ class MobileWebSocketClient(
                                 _connectionState.value = ConnectionState.READY
                                 _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = "", activeModel = ""))
                             }
+                            "session.created" -> {
+                                val sid = payload?.get("session_id")?.jsonPrimitive?.contentOrNull
+                                if (sid != null) {
+                                    hermesSessionId = sid
+                                }
+                                _connectionState.value = ConnectionState.READY
+                                _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = sid ?: "", activeModel = activeModel ?: ""))
+                            }
                             "message.start" -> {
+                                if (_connectionState.value != ConnectionState.READY) {
+                                    _connectionState.value = ConnectionState.READY
+                                }
                                 activeStreamSequence = 0
                             }
                             "thinking.delta", "reasoning.delta" -> {
@@ -361,7 +420,7 @@ class MobileWebSocketClient(
                     }
                 }
             } catch (e: Exception) {
-                Log.e("MobileWebSocketClient", "Error parsing incoming frame", e)
+                Log.e(tag, "Error parsing incoming frame", e)
             }
         }
     }
@@ -570,9 +629,18 @@ class MobileWebSocketClient(
     }
 
     fun disconnect() {
+        Log.i(tag, "disconnect() called by user")
         isIntentionallyClosed = true
-        webSocket?.close(1000, "User disconnected")
-        webSocket = null
-        _connectionState.value = ConnectionState.DISCONNECTED
+        synchronized(connectionLock) {
+            connectionJob?.cancel()
+            connectionJob = null
+            try {
+                webSocket?.close(1000, "User disconnected")
+            } catch (e: Exception) {
+                Log.w(tag, "Error during disconnect close: ${e.message}")
+            }
+            webSocket = null
+            _connectionState.value = ConnectionState.DISCONNECTED
+        }
     }
 }

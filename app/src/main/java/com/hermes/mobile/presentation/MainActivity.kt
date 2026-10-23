@@ -190,7 +190,7 @@ class MainActivity : ComponentActivity() {
                         onStartDaemonInBackground = {
                             chatViewModel.startTermuxDaemon(context)
                         },
-                        onReconnect = { chatViewModel.reconnect() },
+                        onReconnect = { chatViewModel.reconnect(force = true) },
                         onOpenWizard = {
                             showTermuxStatusDialog = false
                             showOnboardingDialog = true
@@ -202,13 +202,19 @@ class MainActivity : ComponentActivity() {
                 if (showOnboardingDialog) {
                     com.hermes.mobile.presentation.onboarding.OnboardingDialog(
                         connectionState = connectionState,
-                        onStartDaemonInBackground = {
-                            chatViewModel.startTermuxDaemon(context)
+                        onStartDaemonInBackground = { onResult ->
+                            chatViewModel.startTermuxDaemon(context, onResult)
+                        },
+                        onReconnect = {
+                            chatViewModel.reconnect(force = true)
                         },
                         onEnableDemoMode = {
                             chatViewModel.setDemoMode(true)
                             chatViewModel.setFirstLaunchDone()
                             showOnboardingDialog = false
+                        },
+                        onSetServerUrl = { url ->
+                            chatViewModel.setServerUrl(url)
                         },
                         onCustomServer = { url ->
                             chatViewModel.setServerUrl(url)

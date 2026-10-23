@@ -291,16 +291,22 @@ class ChatViewModel(
             val res = com.hermes.mobile.transport.termux.TermuxRunner.startHermesDaemonInBackground(context)
             res.onSuccess {
                 onResult?.invoke(true, null)
-                kotlinx.coroutines.delay(1500)
-                webSocketClient.connect()
+                // Активно опрашиваем соединение каждые 1.5 сек в течение 20 секунд
+                for (attempt in 1..14) {
+                    kotlinx.coroutines.delay(1500)
+                    if (connectionState.value == ConnectionState.READY) {
+                        break
+                    }
+                    webSocketClient.reconnect(force = true)
+                }
             }.onFailure { err ->
                 onResult?.invoke(false, err.message)
             }
         }
     }
 
-    fun reconnect() {
-        webSocketClient.connect()
+    fun reconnect(force: Boolean = true) {
+        webSocketClient.reconnect(force = force)
     }
 
     fun refreshProviders() {

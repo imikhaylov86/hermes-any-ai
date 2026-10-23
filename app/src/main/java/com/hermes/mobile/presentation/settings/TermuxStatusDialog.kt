@@ -41,12 +41,14 @@ fun TermuxStatusDialog(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     var isTermuxInstalled by remember { mutableStateOf(TermuxRunner.isTermuxInstalled(context)) }
+    var isHermesAgentAppInstalled by remember { mutableStateOf(TermuxRunner.isHermesAgentAppInstalled(context)) }
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 isTermuxInstalled = TermuxRunner.isTermuxInstalled(context)
+                isHermesAgentAppInstalled = TermuxRunner.isHermesAgentAppInstalled(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -58,10 +60,8 @@ fun TermuxStatusDialog(
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(2000)
-            val updated = TermuxRunner.isTermuxInstalled(context)
-            if (updated != isTermuxInstalled) {
-                isTermuxInstalled = updated
-            }
+            isTermuxInstalled = TermuxRunner.isTermuxInstalled(context)
+            isHermesAgentAppInstalled = TermuxRunner.isHermesAgentAppInstalled(context)
         }
     }
 
@@ -225,15 +225,47 @@ fun TermuxStatusDialog(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(strings.termuxUpdateBtn, fontSize = 12.sp)
                     }
+                    // Кнопка открытия отдельного приложения Hermes Agent (если установлено)
+                    if (isHermesAgentAppInstalled) {
+                        OutlinedButton(
+                            onClick = {
+                                if (!TermuxRunner.openHermesAgentApp(context)) {
+                                    Toast.makeText(context, "Не удалось открыть Hermes Agent", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = AppDimensions.ShapeButton
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp), tint = PrimaryIndigo)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(appStrings.onboardingOpenHermesAppBtn, fontSize = 12.sp)
+                        }
+                    }
                 } else {
-                    Button(
-                        onClick = { TermuxRunner.openTermuxDownloadPage(context) },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = AppDimensions.ShapeButton
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(strings.onboardingInstallTermuxBtn, fontSize = 13.sp)
+                    if (isHermesAgentAppInstalled) {
+                        Button(
+                            onClick = {
+                                if (!TermuxRunner.openHermesAgentApp(context)) {
+                                    Toast.makeText(context, "Не удалось открыть Hermes Agent", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = AppDimensions.ShapeButton
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(appStrings.onboardingOpenHermesAppBtn, fontSize = 13.sp)
+                        }
+                    } else {
+                        Button(
+                            onClick = { TermuxRunner.openTermuxDownloadPage(context) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = AppDimensions.ShapeButton
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(strings.onboardingInstallTermuxBtn, fontSize = 13.sp)
+                        }
                     }
                 }
 

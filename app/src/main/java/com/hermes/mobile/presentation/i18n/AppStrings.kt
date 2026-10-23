@@ -316,6 +316,11 @@ interface AppStrings {
     val onboardingWizardStartChatBtn: String
     val onboardingWizardManualLaunchHint: String
     val onboardingWizardOpenTermuxManual: String
+    val onboardingHermesAppDetected: String
+    val onboardingOpenHermesAppBtn: String
+    val onboardingPermissionsRequired: String
+    val onboardingOpenSettingsBtn: String
+    val onboardingRetryConnectionBtn: String
 
     // Tool Approval & Clarify
     val approvalTitle: String
@@ -634,6 +639,11 @@ class RuAppStrings : AppStrings {
     override val onboardingWizardStartChatBtn = "Перейти к диалогу"
     override val onboardingWizardManualLaunchHint = "Если фоновый запуск заблокирован системой энергосбережения, откройте Termux и выполните команду: hermes run --mobile"
     override val onboardingWizardOpenTermuxManual = "Открыть Termux"
+    override val onboardingHermesAppDetected = "Обнаружено приложение Hermes Agent"
+    override val onboardingOpenHermesAppBtn = "Открыть Hermes Agent"
+    override val onboardingPermissionsRequired = "Требуется разрешение Termux RUN_COMMAND или ручной запуск через терминал"
+    override val onboardingOpenSettingsBtn = "Настройки приложения"
+    override val onboardingRetryConnectionBtn = "Повторить подключение"
 
     override val approvalTitle = "Требуется подтверждение действия"
     override val approvalParams = "Параметры:"
@@ -951,6 +961,11 @@ class EnAppStrings : AppStrings {
     override val onboardingWizardStartChatBtn = "Start Chatting"
     override val onboardingWizardManualLaunchHint = "If background start is blocked by battery saver, open Termux and run: hermes run --mobile"
     override val onboardingWizardOpenTermuxManual = "Open Termux"
+    override val onboardingHermesAppDetected = "Hermes Agent app detected"
+    override val onboardingOpenHermesAppBtn = "Open Hermes Agent"
+    override val onboardingPermissionsRequired = "Termux RUN_COMMAND permission or manual start required"
+    override val onboardingOpenSettingsBtn = "App Settings"
+    override val onboardingRetryConnectionBtn = "Retry Connection"
 
     override val approvalTitle = "Action Approval Required"
     override val approvalParams = "Parameters:"

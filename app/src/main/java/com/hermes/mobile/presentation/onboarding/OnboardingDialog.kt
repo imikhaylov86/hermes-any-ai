@@ -57,8 +57,10 @@ enum class WizardStep {
 @Composable
 fun OnboardingDialog(
     connectionState: ConnectionState,
-    onStartDaemonInBackground: () -> Unit,
+    onStartDaemonInBackground: (onResult: ((Boolean, String?) -> Unit)?) -> Unit,
+    onReconnect: () -> Unit = {},
     onEnableDemoMode: () -> Unit,
+    onSetServerUrl: (String) -> Unit = {},
     onCustomServer: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -68,6 +70,7 @@ fun OnboardingDialog(
 
     var currentStep by remember { mutableStateOf(WizardStep.WELCOME) }
     var isTermuxInstalled by remember { mutableStateOf(TermuxRunner.isTermuxInstalled(context)) }
+    var isHermesAgentAppInstalled by remember { mutableStateOf(TermuxRunner.isHermesAgentAppInstalled(context)) }
 
     // Автоматическая проверка при возврате в приложение из Termux / браузера (ON_RESUME)
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -75,6 +78,7 @@ fun OnboardingDialog(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 isTermuxInstalled = TermuxRunner.isTermuxInstalled(context)
+                isHermesAgentAppInstalled = TermuxRunner.isHermesAgentAppInstalled(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -83,25 +87,23 @@ fun OnboardingDialog(
         }
     }
 
-    // Фоновый опрос статуса установки Termux каждые 2 секунды
+    // Фоновый периодический опрос статуса установки окружения
     LaunchedEffect(Unit) {
         while (true) {
             delay(2000)
-            val updated = TermuxRunner.isTermuxInstalled(context)
-            if (updated != isTermuxInstalled) {
-                isTermuxInstalled = updated
+            val updatedTermux = TermuxRunner.isTermuxInstalled(context)
+            val updatedHermes = TermuxRunner.isHermesAgentAppInstalled(context)
+            if (updatedTermux != isTermuxInstalled) {
+                isTermuxInstalled = updatedTermux
+            }
+            if (updatedHermes != isHermesAgentAppInstalled) {
+                isHermesAgentAppInstalled = updatedHermes
             }
         }
     }
 
     var isStartingDaemon by remember { mutableStateOf(false) }
-    LaunchedEffect(isStartingDaemon) {
-        if (isStartingDaemon) {
-            delay(3500)
-            isStartingDaemon = false
-        }
-    }
-
+    var daemonErrorMessage by remember { mutableStateOf<String?>(null) }
     var showManualCommandHint by remember { mutableStateOf(false) }
     var customUrlInput by remember { mutableStateOf("ws://192.168.1.100:8000/ws") }
 
@@ -162,7 +164,7 @@ fun OnboardingDialog(
                         Spacer(modifier = Modifier.size(36.dp))
                     }
 
-                    // Индикатор шагов визарда (если мы внутри сценария Termux)
+                    // Индикатор шагов визарда (если мы внутри сценария локального агента)
                     if (currentStep == WizardStep.TERMUX_CHECK ||
                         currentStep == WizardStep.TERMUX_SETUP ||
                         currentStep == WizardStep.TERMUX_LAUNCH
@@ -231,7 +233,7 @@ fun OnboardingDialog(
                                 WizardStep.WELCOME -> {
                                     WelcomeStepContent(
                                         onStartLocal = {
-                                            onCustomServer("ws://127.0.0.1:8000/api/ws?token=hermes_mobile_local")
+                                            onSetServerUrl("ws://127.0.0.1:8000/api/ws?token=hermes_mobile_local")
                                             currentStep = WizardStep.TERMUX_CHECK
                                         },
                                         onSelectRemote = { currentStep = WizardStep.REMOTE_SERVER },
@@ -243,13 +245,15 @@ fun OnboardingDialog(
                                 }
                                 WizardStep.TERMUX_CHECK -> {
                                     TermuxCheckStepContent(
-                                        isInstalled = isTermuxInstalled,
+                                        isTermuxInstalled = isTermuxInstalled,
+                                        isHermesAppInstalled = isHermesAgentAppInstalled,
                                         onDownloadFDroid = { TermuxRunner.openTermuxDownloadPage(context) },
                                         onCheckAgain = {
                                             isTermuxInstalled = TermuxRunner.isTermuxInstalled(context)
+                                            isHermesAgentAppInstalled = TermuxRunner.isHermesAgentAppInstalled(context)
                                             Toast.makeText(
                                                 context,
-                                                if (isTermuxInstalled) appStrings.onboardingTermuxDetected else appStrings.onboardingTermuxNotInstalled,
+                                                if (isTermuxInstalled || isHermesAgentAppInstalled) appStrings.onboardingTermuxDetected else appStrings.onboardingTermuxNotInstalled,
                                                 Toast.LENGTH_SHORT
                                             ).show()
                                         },
@@ -259,6 +263,7 @@ fun OnboardingDialog(
                                 WizardStep.TERMUX_SETUP -> {
                                     TermuxSetupStepContent(
                                         command = TermuxRunner.SETUP_COMMAND,
+                                        isHermesAppInstalled = isHermesAgentAppInstalled,
                                         onCopyAndOpenTermux = {
                                             clipboardManager.setText(AnnotatedString(TermuxRunner.SETUP_COMMAND))
                                             Toast.makeText(context, appStrings.onboardingCommandCopied, Toast.LENGTH_SHORT).show()
@@ -277,17 +282,42 @@ fun OnboardingDialog(
                                     TermuxLaunchStepContent(
                                         connectionState = connectionState,
                                         isStarting = isStartingDaemon,
+                                        isHermesAgentAppInstalled = isHermesAgentAppInstalled,
+                                        isTermuxInstalled = isTermuxInstalled,
+                                        errorMessage = daemonErrorMessage,
                                         showManualHint = showManualCommandHint,
                                         onToggleManualHint = { showManualCommandHint = !showManualCommandHint },
                                         onStartDaemon = {
                                             isStartingDaemon = true
-                                            onStartDaemonInBackground()
-                                            Toast.makeText(context, appStrings.onboardingDaemonSentToast, Toast.LENGTH_SHORT).show()
+                                            daemonErrorMessage = null
+                                            onStartDaemonInBackground { success, err ->
+                                                isStartingDaemon = false
+                                                if (success) {
+                                                    Toast.makeText(context, appStrings.onboardingDaemonSentToast, Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    daemonErrorMessage = err ?: "Ошибка отправки команды"
+                                                    Toast.makeText(context, err ?: "Ошибка запуска", Toast.LENGTH_LONG).show()
+                                                }
+                                            }
+                                        },
+                                        onOpenHermesAgentApp = {
+                                            if (!TermuxRunner.openHermesAgentApp(context)) {
+                                                Toast.makeText(context, "Не удалось открыть Hermes Agent", Toast.LENGTH_SHORT).show()
+                                            }
                                         },
                                         onOpenTermuxManual = {
+                                            clipboardManager.setText(AnnotatedString(TermuxRunner.LAUNCH_COMMAND))
+                                            Toast.makeText(context, appStrings.onboardingCommandCopied, Toast.LENGTH_SHORT).show()
                                             if (!TermuxRunner.openTermux(context)) {
                                                 TermuxRunner.openTermuxDownloadPage(context)
                                             }
+                                        },
+                                        onOpenPermissions = {
+                                            TermuxRunner.openAppPermissions(context)
+                                        },
+                                        onRetryConnection = {
+                                            onReconnect()
+                                            Toast.makeText(context, "Повторное подключение...", Toast.LENGTH_SHORT).show()
                                         },
                                         onComplete = onDismiss
                                     )
@@ -588,16 +618,18 @@ private fun WelcomeStepContent(
 }
 
 /**
- * ШАГ 1: Проверка и установка Termux
+ * ШАГ 1: Проверка и установка Termux / Hermes Agent
  */
 @Composable
 private fun TermuxCheckStepContent(
-    isInstalled: Boolean,
+    isTermuxInstalled: Boolean,
+    isHermesAppInstalled: Boolean,
     onDownloadFDroid: () -> Unit,
     onCheckAgain: () -> Unit,
     onNext: () -> Unit
 ) {
     val appStrings = strings
+    val hasAnyAgentEnvironment = isTermuxInstalled || isHermesAppInstalled
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -611,18 +643,18 @@ private fun TermuxCheckStepContent(
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = if (isInstalled) appStrings.onboardingWizardTermuxFoundDesc else appStrings.onboardingTermuxDescNotInstalled,
+            text = if (hasAnyAgentEnvironment) appStrings.onboardingWizardTermuxFoundDesc else appStrings.onboardingTermuxDescNotInstalled,
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
     }
 
-    // Карточка статуса
+    // Карточка статуса Termux / Hermes App
     Surface(
         shape = AppDimensions.ShapeCard,
-        color = if (isInstalled) AccentEmerald.copy(alpha = 0.1f) else AccentRose.copy(alpha = 0.1f),
-        border = BorderStroke(1.dp, if (isInstalled) AccentEmerald.copy(alpha = 0.35f) else AccentRose.copy(alpha = 0.35f)),
+        color = if (hasAnyAgentEnvironment) AccentEmerald.copy(alpha = 0.1f) else AccentRose.copy(alpha = 0.1f),
+        border = BorderStroke(1.dp, if (hasAnyAgentEnvironment) AccentEmerald.copy(alpha = 0.35f) else AccentRose.copy(alpha = 0.35f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -633,11 +665,11 @@ private fun TermuxCheckStepContent(
                 modifier = Modifier
                     .size(36.dp)
                     .clip(CircleShape)
-                    .background(if (isInstalled) AccentEmerald else AccentRose),
+                    .background(if (hasAnyAgentEnvironment) AccentEmerald else AccentRose),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = if (isInstalled) Icons.Default.Check else Icons.Default.Close,
+                    imageVector = if (hasAnyAgentEnvironment) Icons.Default.Check else Icons.Default.Close,
                     contentDescription = null,
                     tint = Color.White,
                     modifier = Modifier.size(20.dp)
@@ -646,13 +678,18 @@ private fun TermuxCheckStepContent(
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (isInstalled) appStrings.onboardingWizardTermuxFound else appStrings.onboardingWizardTermuxMissing,
+                    text = when {
+                        isHermesAppInstalled && isTermuxInstalled -> "Termux и Hermes Agent установлены"
+                        isHermesAppInstalled -> appStrings.onboardingHermesAppDetected
+                        isTermuxInstalled -> appStrings.onboardingWizardTermuxFound
+                        else -> appStrings.onboardingWizardTermuxMissing
+                    },
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (isInstalled) AccentEmerald else AccentRose
+                    color = if (hasAnyAgentEnvironment) AccentEmerald else AccentRose
                 )
                 Text(
-                    text = if (isInstalled) "Готово к следующему шагу" else "Требуется установка приложения Termux",
+                    text = if (hasAnyAgentEnvironment) "Окружение готово к следующему шагу" else "Требуется установка приложения Termux",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -668,7 +705,7 @@ private fun TermuxCheckStepContent(
         }
     }
 
-    if (!isInstalled) {
+    if (!hasAnyAgentEnvironment) {
         // Предупреждение о Google Play
         Surface(
             shape = AppDimensions.ShapeCard,
@@ -730,7 +767,7 @@ private fun TermuxCheckStepContent(
             }
         }
     } else {
-        // Если Termux уже установлен — кнопка перехода к шагу 2
+        // Если Termux или Hermes Agent установлены — кнопка перехода к шагу 2
         Button(
             onClick = onNext,
             modifier = Modifier
@@ -750,11 +787,12 @@ private fun TermuxCheckStepContent(
 }
 
 /**
- * ШАГ 2: Подробная инструкция по вставке команды в Termux (Самый важный шаг!)
+ * ШАГ 2: Инструкция по первоначальной настройке
  */
 @Composable
 private fun TermuxSetupStepContent(
     command: String,
+    isHermesAppInstalled: Boolean,
     onCopyAndOpenTermux: () -> Unit,
     onCopyOnly: () -> Unit,
     onNext: () -> Unit
@@ -773,7 +811,11 @@ private fun TermuxSetupStepContent(
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "Выполните 3 простых действия для установки агента:",
+            text = if (isHermesAppInstalled) {
+                "Hermes Agent установлен. При использовании Termux выполните шаги ниже:"
+            } else {
+                "Выполните 3 простых действия для установки агента:"
+            },
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
@@ -960,10 +1002,16 @@ private fun InstructionActionItem(
 private fun TermuxLaunchStepContent(
     connectionState: ConnectionState,
     isStarting: Boolean,
+    isHermesAgentAppInstalled: Boolean,
+    isTermuxInstalled: Boolean,
+    errorMessage: String?,
     showManualHint: Boolean,
     onToggleManualHint: () -> Unit,
     onStartDaemon: () -> Unit,
+    onOpenHermesAgentApp: () -> Unit,
     onOpenTermuxManual: () -> Unit,
+    onOpenPermissions: () -> Unit,
+    onRetryConnection: () -> Unit,
     onComplete: () -> Unit
 ) {
     val appStrings = strings
@@ -1050,7 +1098,7 @@ private fun TermuxLaunchStepContent(
             )
         }
     } else {
-        // Ожидание старта
+        // Ожидание старта или ошибка связи
         Surface(
             shape = AppDimensions.ShapeCard,
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
@@ -1065,7 +1113,7 @@ private fun TermuxLaunchStepContent(
                             .clip(CircleShape)
                             .background(
                                 when (connectionState) {
-                                    ConnectionState.CONNECTING -> Color(0xFFF59E0B)
+                                    ConnectionState.CONNECTING, ConnectionState.AUTHENTICATING -> Color(0xFFF59E0B)
                                     ConnectionState.READY -> AccentEmerald
                                     else -> AccentRose
                                 }
@@ -1073,31 +1121,106 @@ private fun TermuxLaunchStepContent(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "Статус: ${connectionState.name}",
+                        text = "Статус подключения: ${connectionState.name}",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
 
-                Button(
-                    onClick = onStartDaemon,
-                    enabled = !isStarting,
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo),
+                // Кнопка фонового старта в Termux
+                if (isTermuxInstalled) {
+                    Button(
+                        onClick = onStartDaemon,
+                        enabled = !isStarting,
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo),
+                        shape = AppDimensions.ShapeButton
+                    ) {
+                        if (isStarting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(appStrings.termuxDaemonStarting, fontSize = 13.sp)
+                        } else {
+                            Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(appStrings.onboardingStartDaemonBtn, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // Кнопка открытия отдельного приложения Hermes Agent (если установлено)
+                if (isHermesAgentAppInstalled) {
+                    OutlinedButton(
+                        onClick = onOpenHermesAgentApp,
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        shape = AppDimensions.ShapeButton
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp), tint = PrimaryIndigo)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(appStrings.onboardingOpenHermesAppBtn, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+
+                // Кнопка принудительного повторного подключения
+                OutlinedButton(
+                    onClick = onRetryConnection,
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
                     shape = AppDimensions.ShapeButton
                 ) {
-                    if (isStarting) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(appStrings.onboardingRetryConnectionBtn, fontSize = 12.sp)
+                }
+            }
+        }
+
+        // Предупреждение об ошибке фонового запуска
+        if (errorMessage != null) {
+            Surface(
+                shape = AppDimensions.ShapeCard,
+                color = AccentRose.copy(alpha = 0.12f),
+                border = BorderStroke(1.dp, AccentRose.copy(alpha = 0.35f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = AccentRose, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = appStrings.onboardingPermissionsRequired,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AccentRose
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(appStrings.termuxDaemonStarting, fontSize = 13.sp)
-                    } else {
-                        Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(appStrings.onboardingStartDaemonBtn, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Text(
+                        text = errorMessage,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onOpenPermissions,
+                            modifier = Modifier.weight(1f).height(40.dp),
+                            shape = AppDimensions.ShapeButton
+                        ) {
+                            Text(appStrings.onboardingOpenSettingsBtn, fontSize = 11.sp)
+                        }
+                        Button(
+                            onClick = onOpenTermuxManual,
+                            modifier = Modifier.weight(1f).height(40.dp),
+                            shape = AppDimensions.ShapeButton,
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo)
+                        ) {
+                            Text(appStrings.onboardingWizardOpenTermuxManual, fontSize = 11.sp)
+                        }
                     }
                 }
             }
@@ -1116,7 +1239,7 @@ private fun TermuxLaunchStepContent(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Не запускается автоматически?",
+                        text = "Ручной запуск через Termux",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1144,7 +1267,7 @@ private fun TermuxLaunchStepContent(
                         ) {
                             Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(appStrings.onboardingWizardOpenTermuxManual, fontSize = 11.sp)
+                            Text("${appStrings.onboardingWizardOpenTermuxManual} (с авто-копированием)", fontSize = 11.sp)
                         }
                     }
                 }

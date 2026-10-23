@@ -3,19 +3,23 @@ package com.hermes.mobile.transport.termux
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.provider.Settings
 import androidx.core.content.ContextCompat
 
 /**
- * Управление интеграцией с окружением Termux на Android.
+ * Управление интеграцией с окружением Termux и Hermes Agent на Android.
  * Обеспечивает фоновый запуск демона Hermes через RunCommandService (Tasker API)
- * без необходимости ручного открытия терминала пользователем.
+ * либо запуск локального приложения Hermes Agent.
  */
 object TermuxRunner {
 
     const val TERMUX_PACKAGE = "com.termux"
+    const val HERMES_AGENT_PACKAGE = "com.hermesagent.android"
     const val TERMUX_SERVICE = "com.termux.app.RunCommandService"
     const val ACTION_RUN_COMMAND = "com.termux.RUN_COMMAND"
+    const val PERMISSION_RUN_COMMAND = "com.termux.permission.RUN_COMMAND"
 
     const val EXTRA_RUN_COMMAND_PATH = "com.termux.RUN_COMMAND_PATH"
     const val EXTRA_RUN_COMMAND_ARGUMENTS = "com.termux.RUN_COMMAND_ARGUMENTS"
@@ -29,14 +33,14 @@ object TermuxRunner {
     // Однострочный скрипт авто-настройки (ставит зависимости и включает скрытый запуск)
     const val SETUP_COMMAND = "pkg update -y && pkg install -y python git curl && pip install --upgrade pip && pip install hermes-agent && mkdir -p ~/.termux && echo 'allow-external-apps=true' >> ~/.termux/termux.properties && termux-reload-settings"
 
-    // Команда штатного запуска агента
-    const val LAUNCH_COMMAND = "termux-wake-lock; hermes run --mobile"
+    // Команда штатного запуска агента с явным экспортом путей к исполняемым файлам
+    const val LAUNCH_COMMAND = "export PATH=\"\$HOME/.local/bin:/data/data/com.termux/files/usr/bin:\$PATH\"; termux-wake-lock; hermes run --mobile"
 
     // Фоновая команда с защитой от дублирования процессов и авто-установкой при отсутствии hermes
-    const val BACKGROUND_DAEMON_CMD = "termux-wake-lock; if ! command -v hermes > /dev/null 2>&1; then pkg update -y && pkg install -y python git curl && pip install --upgrade pip && pip install hermes-agent; fi; if ! pgrep -f 'hermes run' > /dev/null 2>&1; then hermes run --mobile > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 & fi"
+    const val BACKGROUND_DAEMON_CMD = "export PATH=\"\$HOME/.local/bin:/data/data/com.termux/files/usr/bin:\$PATH\"; termux-wake-lock; if ! command -v hermes > /dev/null 2>&1; then pkg update -y && pkg install -y python git curl && pip install --upgrade pip && pip install hermes-agent; fi; if ! pgrep -f 'hermes run' > /dev/null 2>&1; then hermes run --mobile > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 & fi"
 
     // Команда обновления Hermes Agent в Termux в один клик
-    const val UPDATE_COMMAND = "termux-wake-lock; pip install --upgrade hermes-agent && pkill -f 'hermes run' ; sleep 1 ; hermes run --mobile > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 &"
+    const val UPDATE_COMMAND = "export PATH=\"\$HOME/.local/bin:/data/data/com.termux/files/usr/bin:\$PATH\"; termux-wake-lock; pip install --upgrade hermes-agent && pkill -f 'hermes run' ; sleep 1 ; hermes run --mobile > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 &"
 
     const val F_DROID_TERMUX_URL = "https://f-droid.org/packages/com.termux/"
     const val GITHUB_TERMUX_URL = "https://github.com/termux/termux-app/releases"
@@ -52,6 +56,26 @@ object TermuxRunner {
         } catch (_: Exception) {
             false
         }
+    }
+
+    /**
+     * Проверяет, установлено ли приложение Hermes Agent на устройстве.
+     */
+    fun isHermesAgentAppInstalled(context: Context): Boolean {
+        return try {
+            if (context.packageManager.getLaunchIntentForPackage(HERMES_AGENT_PACKAGE) != null) return true
+            context.packageManager.getPackageInfo(HERMES_AGENT_PACKAGE, 0)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Проверяет, предоставлено ли разрешение RUN_COMMAND для Termux.
+     */
+    fun hasRunCommandPermission(context: Context): Boolean {
+        return ContextCompat.checkSelfPermission(context, PERMISSION_RUN_COMMAND) == PackageManager.PERMISSION_GRANTED
     }
 
     /**
@@ -119,6 +143,24 @@ object TermuxRunner {
     }
 
     /**
+     * Открывает окно приложения Hermes Agent (если установлено).
+     */
+    fun openHermesAgentApp(context: Context): Boolean {
+        return try {
+            val intent = context.packageManager.getLaunchIntentForPackage(HERMES_AGENT_PACKAGE)
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+                true
+            } else {
+                false
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
      * Открывает окно приложения Termux.
      */
     fun openTermux(context: Context): Boolean {
@@ -133,6 +175,20 @@ object TermuxRunner {
             }
         } catch (_: Exception) {
             false
+        }
+    }
+
+    /**
+     * Открывает системные настройки приложения для управления разрешениями (RUN_COMMAND и др.)
+     */
+    fun openAppPermissions(context: Context) {
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", context.packageName, null)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {
         }
     }
 

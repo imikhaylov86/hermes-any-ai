@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.4] - 2026-10-23
+
+### 🇬🇧 English
+* **Onboarding Wizard & Daemon Recovery:** Complete overhaul of onboarding flow. Fixed instant dialog dismissal when choosing local mode, added auto-reconnection loop with exponential backoff (1s-10s) and clean coroutine lifecycle.
+* **Dual Runtime Support:** Full integration for both Termux (`com.termux`) and Hermes Agent app (`com.hermesagent.android`) with one-click app launching and detection.
+* **Termux Permission & PATH Fixes:** Added explicit binary PATH export and graceful error handling for `com.termux.permission.RUN_COMMAND` and `allow-external-apps`.
+* **Reliable Connection State:** Auto-detects `gateway.ready` and `session.create` responses to transition immediately to `READY`.
+
+### 🇷🇺 Русский
+* **Исправление онбординга и восстановления связи:** Полный редизайн пошагового мастера (3 шага). Исправлено мгновенное закрытие диалога при выборе локального режима. Реализовано надежное фоновое переподключение с экспоненциальной задержкой (1с-10с) без блокировки корутин.
+* **Поддержка Termux и Hermes Agent:** Распознавание и поддержка как Termux (`com.termux`), так и приложения Hermes Agent (`com.hermesagent.android`) с кнопками быстрого перехода.
+* **Устранение сбоев Termux RUN_COMMAND:** Добавлен экспорт путей `PATH` к бинарникам и понятная обработка отсутствия разрешения `RUN_COMMAND` и параметра `allow-external-apps`.
+* **Мгновенный переход в READY:** Автоматическое завершение шага при получении событий `gateway.ready` или `session.create`.
+
+---
+
 ## [1.0.1] - 2026-10-23
 
 ### 🇬🇧 English
