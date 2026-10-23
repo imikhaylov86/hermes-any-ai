@@ -36,6 +36,9 @@ import com.hermes.mobile.R
 import com.hermes.mobile.domain.model.Attachment
 import com.hermes.mobile.domain.model.ConnectionState
 import com.hermes.mobile.domain.model.MessageStatus
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.ui.graphics.SolidColor
 import com.hermes.mobile.presentation.i18n.strings
 import com.hermes.mobile.presentation.provider.ProviderBottomSheet
 import com.hermes.mobile.presentation.session.RenameSessionDialog
@@ -73,6 +76,7 @@ fun ChatScreen(
 
     val activeSession by viewModel.activeSession.collectAsState()
     var showRenameSessionDialog by remember { mutableStateOf(false) }
+    val updateState by viewModel.updateState.collectAsState()
 
     val listState = rememberLazyListState()
 
@@ -355,18 +359,19 @@ fun ChatScreen(
                     }
                 }
 
-                // Строка ввода сообщения: сбалансированная, с симметричными отступами
+                // Строка ввода сообщения: сбалансированная, с симметричными отступами и единой стартовой высотой 44.dp
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalAlignment = Alignment.Bottom,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Кнопка вложений
                     IconButton(
                         onClick = { filePickerLauncher.launch("*/*") },
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(44.dp)
                             .clip(AppDimensions.ShapeButton)
                             .background(MaterialTheme.colorScheme.surfaceVariant)
                     ) {
@@ -378,25 +383,73 @@ fun ChatScreen(
                         )
                     }
 
-                    TextField(
+                    // Кнопка вызова меню слэш-команд ("/")
+                    IconButton(
+                        onClick = {
+                            if (inputText.startsWith("/")) {
+                                viewModel.inputText.value = ""
+                            } else {
+                                viewModel.inputText.value = "/"
+                            }
+                        },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(AppDimensions.ShapeButton)
+                            .background(
+                                if (inputText.startsWith("/")) PrimaryIndigo.copy(alpha = 0.18f)
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            )
+                    ) {
+                        Text(
+                            text = "/",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 19.sp,
+                            color = if (inputText.startsWith("/")) PrimaryIndigo else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Поле ввода текста с выровненной начальной высотой (44.dp)
+                    BasicTextField(
                         value = inputText,
                         onValueChange = { viewModel.inputText.value = it },
-                        placeholder = { Text(strings.inputPlaceholder, fontSize = 14.sp) },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 44.dp),
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 14.sp
+                        ),
                         maxLines = 4,
-                        shape = AppDimensions.ShapeField,
-                        colors = TextFieldDefaults.colors(
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            disabledIndicatorColor = Color.Transparent
-                        )
+                        cursorBrush = SolidColor(PrimaryIndigo),
+                        decorationBox = { innerTextField ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 44.dp)
+                                    .clip(AppDimensions.ShapeField)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (inputText.isEmpty()) {
+                                    Text(
+                                        text = strings.inputPlaceholder,
+                                        fontSize = 14.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
                     )
 
                     if (isStreaming) {
                         IconButton(
                             onClick = { viewModel.stopGeneration() },
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(44.dp)
                                 .clip(AppDimensions.ShapeButton)
                                 .background(AccentRose)
                         ) {
@@ -413,14 +466,14 @@ fun ChatScreen(
                             onClick = { viewModel.sendMessage() },
                             enabled = hasContent,
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(44.dp)
                                 .clip(AppDimensions.ShapeButton)
                                 .background(
                                     if (hasContent) PrimaryIndigo else MaterialTheme.colorScheme.surfaceVariant
                                 )
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Send,
+                                imageVector = Icons.AutoMirrored.Filled.Send,
                                 contentDescription = strings.send,
                                 tint = if (hasContent) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                                 modifier = Modifier.size(20.dp)
@@ -431,18 +484,64 @@ fun ChatScreen(
             }
         }
     ) { innerPadding ->
-        if (messages.isEmpty() && pendingApprovals.isEmpty() && pendingClarifies.isEmpty()) {
-            EmptyChatWelcome(
-                modifier = Modifier.padding(innerPadding)
-            )
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentPadding = PaddingValues(top = 12.dp, bottom = 48.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            // Информационный баннер о наличии новой версии приложения
+            AnimatedVisibility(
+                visible = updateState is com.hermes.mobile.domain.update.UpdateState.UpdateAvailable
             ) {
+                if (updateState is com.hermes.mobile.domain.update.UpdateState.UpdateAvailable) {
+                    val info = (updateState as com.hermes.mobile.domain.update.UpdateState.UpdateAvailable).info
+                    Surface(
+                        color = PrimaryIndigo.copy(alpha = 0.12f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.checkForUpdates(isManual = true) }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.SystemUpdate,
+                                    contentDescription = null,
+                                    tint = PrimaryIndigo,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Доступно обновление ${info.tagName}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = PrimaryIndigo
+                                )
+                            }
+                            Text(
+                                text = strings.downloadAndUpdateBtn,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = PrimaryIndigo
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (messages.isEmpty() && pendingApprovals.isEmpty() && pendingClarifies.isEmpty()) {
+                EmptyChatWelcome(
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = 12.dp, bottom = 48.dp)
+                ) {
                 items(messages, key = { it.id }) { message ->
                     MessageBubble(
                         message = message,
@@ -470,6 +569,7 @@ fun ChatScreen(
             }
         }
     }
+}
 
     if (showProviderSheet) {
         ProviderBottomSheet(

@@ -447,8 +447,10 @@ fun SessionDrawerContent(
                 }
             }
 
-            // Footer: Настройки и диагностика
-            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
+            // Footer: Настройки
+            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(vertical = 6.dp))
+
+            // Пункт: Настройки
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -460,12 +462,20 @@ fun SessionDrawerContent(
                     }
                     .padding(8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = strings.settingsTitle,
-                    tint = PrimaryIndigo,
-                    modifier = Modifier.size(20.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(AppDimensions.ShapeChip)
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = strings.settingsTitle,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
                     Text(strings.settingsTitle, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)

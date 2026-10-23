@@ -4,22 +4,13 @@ param(
 )
 
 if (-not $ApkPath) {
-    $releaseApk = Get-ChildItem -Path "app/build/outputs/apk/release" -Filter "HermesAnyAI_v*.apk" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $releaseApk) {
-        $releaseApk = Get-ChildItem -Path "app/build/outputs/apk/release" -Filter "*.apk" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    }
-
-    if ($releaseApk) {
-        $ApkPath = $releaseApk.FullName
-        if (-not $PackageName) { $PackageName = "com.hermes.mobile" }
-    } else {
-        $debugApk = Get-ChildItem -Path "app/build/outputs/apk/debug" -Filter "HermesAnyAI_v*.apk" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if (-not $debugApk) {
-            $debugApk = Get-ChildItem -Path "app/build/outputs/apk/debug" -Filter "*.apk" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        }
-        if ($debugApk) {
-            $ApkPath = $debugApk.FullName
-            if (-not $PackageName) { $PackageName = "com.hermes.mobile.debug" }
+    $latestApk = Get-ChildItem -Path "app/build/outputs/apk" -Recurse -Filter "*.apk" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($latestApk) {
+        $ApkPath = $latestApk.FullName
+        if ($ApkPath -match "debug") {
+            $PackageName = "com.hermes.mobile.debug"
+        } else {
+            $PackageName = "com.hermes.mobile"
         }
     }
 }

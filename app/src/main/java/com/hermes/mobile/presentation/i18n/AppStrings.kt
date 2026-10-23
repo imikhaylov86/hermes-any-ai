@@ -4,825 +4,877 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 
-data class AppStrings(
+interface AppStrings {
     // Common
-    val appName: String,
-    val close: String,
-    val cancel: String,
-    val save: String,
-    val delete: String,
-    val retry: String,
-    val copy: String,
-    val copied: String,
-    val error: String,
-    val success: String,
-    val online: String,
-    val offline: String,
-    val later: String,
+    val appName: String
+    val close: String
+    val cancel: String
+    val save: String
+    val delete: String
+    val retry: String
+    val copy: String
+    val copied: String
+    val error: String
+    val success: String
+    val online: String
+    val offline: String
+    val later: String
 
     // Language settings
-    val languageSection: String,
-    val languageSubtitle: String,
-    val langRussian: String,
-    val langEnglish: String,
+    val languageSection: String
+    val languageSubtitle: String
+    val langRussian: String
+    val langEnglish: String
 
     // Connection statuses
-    val statusReadyTermux: String,
-    val statusReady: String,
-    val statusConnecting: String,
-    val statusAuthenticating: String,
-    val statusReconnecting: String,
-    val statusFailed: String,
-    val statusDisconnected: String,
-    val statusDemo: String,
+    val statusReadyTermux: String
+    val statusReady: String
+    val statusConnecting: String
+    val statusAuthenticating: String
+    val statusReconnecting: String
+    val statusFailed: String
+    val statusDisconnected: String
+    val statusDemo: String
 
     // Chat Screen
-    val defaultSessionTitle: String,
-    val shareChat: String,
-    val shareChatMarkdown: String,
-    val renameChat: String,
-    val renameChatTitle: String,
-    val renameChatHint: String,
-    val emptyWelcomeTitle: String,
-    val emptyWelcomeSubtitle: String,
-    val emptyWelcomeHint: String,
-    val inputPlaceholder: String,
-    val generating: String,
-    val stopGenerating: String,
-    val send: String,
-    val attachmentFile: String,
-    val attachmentFiles: String,
-    val attachmentSingle: String,
-    val fileDescription: String,
-    val errorGeneratingResponse: String,
-    val thinking: String,
-    val thinkingProgress: String,
-    val thinkingExpand: String,
-    val thinkingCollapse: String,
-    val codeCopied: String,
+    val defaultSessionTitle: String
+    val shareChat: String
+    val shareChatMarkdown: String
+    val renameChat: String
+    val renameChatTitle: String
+    val renameChatHint: String
+    val emptyWelcomeTitle: String
+    val emptyWelcomeSubtitle: String
+    val emptyWelcomeHint: String
+    val inputPlaceholder: String
+    val generating: String
+    val stopGenerating: String
+    val send: String
+    val attachmentFile: String
+    val attachmentFiles: String
+    val attachmentSingle: String
+    val fileDescription: String
+    val errorGeneratingResponse: String
+    val thinking: String
+    val thinkingProgress: String
+    val thinkingExpand: String
+    val thinkingCollapse: String
+    val codeCopied: String
 
     // Image & Media
-    val imageSavedGallerySuccess: String,
-    val imageSaveFailed: String,
-    val imageLoadFailed: String,
-    val imageSaveGallery: String,
-    val imageFullScreen: String,
-    val imageSavingProgress: String,
+    val imageSavedGallerySuccess: String
+    val imageSaveFailed: String
+    val imageLoadFailed: String
+    val imageSaveGallery: String
+    val imageFullScreen: String
+    val imageSavingProgress: String
 
     // Sessions Drawer
-    val sessionsTitle: String,
-    val newChat: String,
-    val searchSessionsHint: String,
-    val sectionPinned: String,
-    val sectionActive: String,
-    val sectionArchived: String,
-    val pinChat: String,
-    val unpinChat: String,
-    val archiveChat: String,
-    val unarchiveChat: String,
-    val deleteChatConfirm: String,
-    val noSessionsFound: String,
+    val sessionsTitle: String
+    val newChat: String
+    val searchSessionsHint: String
+    val sectionPinned: String
+    val sectionActive: String
+    val sectionArchived: String
+    val pinChat: String
+    val unpinChat: String
+    val archiveChat: String
+    val unarchiveChat: String
+    val deleteChatConfirm: String
+    val noSessionsFound: String
 
     // Settings Dialog
-    val settingsTitle: String,
-    val settingsSubtitle: String,
-    val localAgentCardTitle: String,
-    val localAgentCardSubtitleOnline: String,
-    val localAgentCardSubtitleOffline: String,
-    val localAgentCardStatusOnline: String,
-    val localAgentCardStatusWaiting: String,
-    val checkGatewaysTitle: String,
-    val checkGatewaysDesc: String,
-    val checkGatewaysBtn: String,
-    val providersTitle: String,
-    val providersSubtitle: String,
-    val configureBtn: String,
-    val slashManagerTitle: String,
-    val slashManagerSubtitle: String,
-    val backupTitle: String,
-    val backupSubtitle: String,
-    val createBackupBtn: String,
-    val restoreBackupBtn: String,
-    val backupCreated: String,
-    val backupRestored: String,
-    val backupError: String,
-    val connectionParamsAccordion: String,
-    val demoModeSwitch: String,
-    val demoModeDesc: String,
-    val agentWsUrlLabel: String,
-    val scanQrBtn: String,
-    val saveUrlBtn: String,
-    val emulatorChip: String,
-    val appVersionFooter: String,
+    val settingsTitle: String
+    val settingsSubtitle: String
+    val localAgentCardTitle: String
+    val localAgentCardSubtitleOnline: String
+    val localAgentCardSubtitleOffline: String
+    val localAgentCardStatusOnline: String
+    val localAgentCardStatusWaiting: String
+    val checkGatewaysTitle: String
+    val checkGatewaysDesc: String
+    val checkGatewaysBtn: String
+    val providersTitle: String
+    val providersSubtitle: String
+    val configureBtn: String
+    val slashManagerTitle: String
+    val slashManagerSubtitle: String
+    val backupTitle: String
+    val backupSubtitle: String
+    val createBackupBtn: String
+    val restoreBackupBtn: String
+    val backupCreated: String
+    val backupRestored: String
+    val backupError: String
+    val connectionParamsAccordion: String
+    val demoModeSwitch: String
+    val demoModeDesc: String
+    val agentWsUrlLabel: String
+    val scanQrBtn: String
+    val saveUrlBtn: String
+    val emulatorChip: String
+    val appVersionFooter: String
+
+    // App Updates
+    val updateSectionTitle: String
+    val checkUpdatesBtn: String
+    val checkingUpdates: String
+    val updateAvailableTitle: String
+    val noUpdatesTitle: String
+    val currentVersionLatest: String
+    val newVersionAvailableFormat: String
+    val whatIsNew: String
+    val downloadAndUpdateBtn: String
+    val downloadingProgressFormat: String
+    val installUpdateBtn: String
+    val updateErrorTitle: String
+    val installPermissionRequired: String
+    val grantPermissionBtn: String
 
     // Diagnostics Dialog
-    val diagTitle: String,
-    val diagSubtitle: String,
-    val diagLocalGateway: String,
-    val diagExternalProviders: String,
-    val diagRandomModel: String,
-    val diagModelAvailable: String,
-    val diagModelError: String,
-    val diagNoModels: String,
-    val diagCopyErrorBtn: String,
-    val diagErrorCopied: String,
-    val diagSummaryAllOk: String,
-    val diagSummaryIssues: String,
-    val diagPollingGateways: String,
-    val diagSampleModelCost: String,
-    val diagSummaryFormat: String,
-    val diagGatewayReachable: String,
-    val diagGatewayUnreachable: String,
-    val diagGatewayProvReachable: String,
-    val diagGatewayProvUnreachable: String,
-    val diagGatewayErrorCode: String,
-    val diagModelAvailableStats: String,
-    val diagModelFailureDefault: String,
-    val diagModelErrorCode: String,
-    val diagFailureWord: String,
+    val diagTitle: String
+    val diagSubtitle: String
+    val diagLocalGateway: String
+    val diagExternalProviders: String
+    val diagRandomModel: String
+    val diagModelAvailable: String
+    val diagModelError: String
+    val diagNoModels: String
+    val diagCopyErrorBtn: String
+    val diagErrorCopied: String
+    val diagSummaryAllOk: String
+    val diagSummaryIssues: String
+    val diagPollingGateways: String
+    val diagSampleModelCost: String
+    val diagSummaryFormat: String
+    val diagGatewayReachable: String
+    val diagGatewayUnreachable: String
+    val diagGatewayProvReachable: String
+    val diagGatewayProvUnreachable: String
+    val diagGatewayErrorCode: String
+    val diagModelAvailableStats: String
+    val diagModelFailureDefault: String
+    val diagModelErrorCode: String
+    val diagFailureWord: String
 
     // Termux Status Dialog
-    val termuxTitle: String,
-    val termuxSubtitle: String,
-    val termuxProtocolVersion: String,
-    val termuxUpdateBtn: String,
-    val termuxUpdating: String,
-    val termuxUpdateSuccess: String,
-    val termuxDaemonStarting: String,
-    val termuxDaemonStarted: String,
-    val termuxStartDaemonBtn: String,
-    val termuxOpenAppBtn: String,
-    val termuxAllowExternalNotice: String,
+    val termuxTitle: String
+    val termuxSubtitle: String
+    val termuxProtocolVersion: String
+    val termuxUpdateBtn: String
+    val termuxUpdating: String
+    val termuxUpdateSuccess: String
+    val termuxDaemonStarting: String
+    val termuxDaemonStarted: String
+    val termuxStartDaemonBtn: String
+    val termuxOpenAppBtn: String
+    val termuxAllowExternalNotice: String
 
     // Provider Sheet
-    val providerSheetTitle: String,
-    val providerSheetSubtitle: String,
-    val fallbackModelBannerTitle: String,
-    val fallbackModelBannerDesc: String,
-    val fallbackModelClearBtn: String,
-    val fallbackBadge: String,
-    val setFallbackBtnDesc: String,
-    val apiKeyLabel: String,
-    val apiKeySaveBtn: String,
-    val apiKeySavedToast: String,
-    val testLatencyBtn: String,
-    val addCustomProviderTitle: String,
-    val customProviderNameLabel: String,
-    val customProviderUrlLabel: String,
-    val customProviderKeyLabel: String,
-    val customProviderAddBtn: String,
-    val provPollingHermes: String,
-    val provNoProvidersConfigured: String,
-    val provNoProvidersHint: String,
-    val provAddProviderBtn: String,
-    val provStatusConnected: String,
-    val provStatusAuthRequired: String,
-    val provStatusError: String,
-    val provStatusDisconnected: String,
-    val provNewChip: String,
-    val provCustomBadge: String,
-    val provPrimaryBadge: String,
-    val provAvailableModelsCount: String,
-    val provNoModelsList: String,
-    val provNeedApiKeyNotice: String,
-    val provApiKeyLabel: String,
-    val provEncryptedKeystore: String,
-    val provPasteKey: String,
-    val provHideKey: String,
-    val provShowKey: String,
-    val provKeySavedPlaceholder: String,
-    val provEnterKeyPlaceholder: String,
-    val provSaveToHermes: String,
-    val provKeySavedNotice: String,
-    val provDeleteTitle: String,
-    val provDeleteConfirm: String,
-    val provAddTitle: String,
-    val provAddSubtitle: String,
-    val provNameLabel: String,
-    val provNameHint: String,
-    val provNameLimit: String,
-    val provNameLimitReached: String,
-    val provProtocolLabel: String,
-    val provUrlLabel: String,
-    val provUrlError: String,
-    val provUrlDesc: String,
-    val provKeyLabel: String,
-    val provKeyNotice: String,
-    val provTestingConnection: String,
-    val provTestConnectionBtn: String,
-    val provTestSuccessLatency: String,
-    val provTestSuccessModels: String,
-    val provTestFailed: String,
-    val provModelsDiscovered: String,
-    val provMoreModels: String,
-    val provSaveConfigError: String,
+    val providerSheetTitle: String
+    val providerSheetSubtitle: String
+    val fallbackModelBannerTitle: String
+    val fallbackModelBannerDesc: String
+    val fallbackModelClearBtn: String
+    val fallbackBadge: String
+    val setFallbackBtnDesc: String
+    val apiKeyLabel: String
+    val apiKeySaveBtn: String
+    val apiKeySavedToast: String
+    val testLatencyBtn: String
+    val addCustomProviderTitle: String
+    val customProviderNameLabel: String
+    val customProviderUrlLabel: String
+    val customProviderKeyLabel: String
+    val customProviderAddBtn: String
+    val provPollingHermes: String
+    val provNoProvidersConfigured: String
+    val provNoProvidersHint: String
+    val provAddProviderBtn: String
+    val provStatusConnected: String
+    val provStatusAuthRequired: String
+    val provStatusError: String
+    val provStatusDisconnected: String
+    val provNewChip: String
+    val provCustomBadge: String
+    val provPrimaryBadge: String
+    val provAvailableModelsCount: String
+    val provNoModelsList: String
+    val provNeedApiKeyNotice: String
+    val provApiKeyLabel: String
+    val provEncryptedKeystore: String
+    val provPasteKey: String
+    val provHideKey: String
+    val provShowKey: String
+    val provKeySavedPlaceholder: String
+    val provEnterKeyPlaceholder: String
+    val provSaveToHermes: String
+    val provKeySavedNotice: String
+    val provDeleteTitle: String
+    val provDeleteConfirm: String
+    val provAddTitle: String
+    val provAddSubtitle: String
+    val provNameLabel: String
+    val provNameHint: String
+    val provNameLimit: String
+    val provNameLimitReached: String
+    val provProtocolLabel: String
+    val provUrlLabel: String
+    val provUrlError: String
+    val provUrlDesc: String
+    val provKeyLabel: String
+    val provKeyNotice: String
+    val provTestingConnection: String
+    val provTestConnectionBtn: String
+    val provTestSuccessLatency: String
+    val provTestSuccessModels: String
+    val provTestFailed: String
+    val provModelsDiscovered: String
+    val provMoreModels: String
+    val provSaveConfigError: String
 
     // Slash Commands Manager
-    val slashManagerAddBtn: String,
-    val slashManagerSearchHint: String,
-    val slashManagerNotFound: String,
-    val slashManagerMoveUp: String,
-    val slashManagerMoveDown: String,
-    val slashManagerEdit: String,
-    val slashManagerDelete: String,
-    val slashManagerResetDefaults: String,
-    val slashManagerDone: String,
-    val slashDeleteTitle: String,
-    val slashDeleteConfirm: String,
-    val slashEditTitle: String,
-    val slashNewTitle: String,
-    val slashCmdNameLabel: String,
-    val slashCmdTitleLabel: String,
-    val slashCmdTitlePlaceholder: String,
-    val slashCmdDescLabel: String,
-    val slashCmdDescPlaceholder: String,
-    val slashCmdTemplateLabel: String,
-    val slashErrorEmptyName: String,
-    val slashErrorEmptyTitle: String,
-    val slashPaletteTitle: String,
-    val slashPaletteSelect: String,
+    val slashManagerAddBtn: String
+    val slashManagerSearchHint: String
+    val slashManagerNotFound: String
+    val slashManagerMoveUp: String
+    val slashManagerMoveDown: String
+    val slashManagerEdit: String
+    val slashManagerDelete: String
+    val slashManagerResetDefaults: String
+    val slashManagerDone: String
+    val slashDeleteTitle: String
+    val slashDeleteConfirm: String
+    val slashEditTitle: String
+    val slashNewTitle: String
+    val slashCmdNameLabel: String
+    val slashCmdTitleLabel: String
+    val slashCmdTitlePlaceholder: String
+    val slashCmdDescLabel: String
+    val slashCmdDescPlaceholder: String
+    val slashCmdTemplateLabel: String
+    val slashErrorEmptyName: String
+    val slashErrorEmptyTitle: String
+    val slashPaletteTitle: String
+    val slashPaletteSelect: String
 
     // Onboarding Dialog
-    val onboardingWelcome: String,
-    val onboardingTagline: String,
-    val onboardingTermuxDetected: String,
-    val onboardingTermuxNotInstalled: String,
-    val onboardingTermuxDescDetected: String,
-    val onboardingTermuxDescNotInstalled: String,
-    val onboardingInstallTermuxBtn: String,
-    val onboardingStartDaemonBtn: String,
-    val onboardingFirstSetupTitle: String,
-    val onboardingCopySetupCommand: String,
-    val onboardingCommandCopied: String,
-    val onboardingRemoteServerBtn: String,
-    val onboardingDemoModeBtn: String,
-    val onboardingSkipBtn: String,
-    val onboardingConnectServerBtn: String,
-    val onboardingScanQrPrompt: String,
-    val onboardingQrRecognized: String,
-    val onboardingCheckInstalledBtn: String,
-    val onboardingCopyAndOpenTermuxBtn: String,
-    val onboardingDaemonSentToast: String,
-    val onboardingStep1Title: String,
-    val onboardingStep1Desc: String,
-    val onboardingStep2Title: String,
-    val onboardingStep2Desc: String,
+    val onboardingWelcome: String
+    val onboardingTagline: String
+    val onboardingTermuxDetected: String
+    val onboardingTermuxNotInstalled: String
+    val onboardingTermuxDescDetected: String
+    val onboardingTermuxDescNotInstalled: String
+    val onboardingInstallTermuxBtn: String
+    val onboardingStartDaemonBtn: String
+    val onboardingFirstSetupTitle: String
+    val onboardingCopySetupCommand: String
+    val onboardingCommandCopied: String
+    val onboardingRemoteServerBtn: String
+    val onboardingDemoModeBtn: String
+    val onboardingSkipBtn: String
+    val onboardingConnectServerBtn: String
+    val onboardingScanQrPrompt: String
+    val onboardingQrRecognized: String
+    val onboardingCheckInstalledBtn: String
+    val onboardingCopyAndOpenTermuxBtn: String
+    val onboardingDaemonSentToast: String
+    val onboardingStep1Title: String
+    val onboardingStep1Desc: String
+    val onboardingStep2Title: String
+    val onboardingStep2Desc: String
 
     // Tool Approval & Clarify
-    val approvalTitle: String,
-    val approvalParams: String,
-    val approvalApprove: String,
-    val approvalDeny: String,
-    val approvalActionProcessed: String,
-    val approvalActionPending: String,
-    val approvalToolLabel: String,
-    val approvalCollapse: String,
-    val approvalExpandFull: String,
-    val approvalUserAllowed: String,
-    val approvalAlwaysAllowed: String,
-    val approvalUserDenied: String,
-    val approvalAlwaysAllowAction: String,
-    val clarifyTitle: String,
+    val approvalTitle: String
+    val approvalParams: String
+    val approvalApprove: String
+    val approvalDeny: String
+    val approvalActionProcessed: String
+    val approvalActionPending: String
+    val approvalToolLabel: String
+    val approvalCollapse: String
+    val approvalExpandFull: String
+    val approvalUserAllowed: String
+    val approvalAlwaysAllowed: String
+    val approvalUserDenied: String
+    val approvalAlwaysAllowAction: String
+    val clarifyTitle: String
     val clarifyPromptTitle: String
-)
+}
 
-val RuStrings = AppStrings(
-    appName = "Hermes Any AI",
-    close = "Закрыть",
-    cancel = "Отмена",
-    save = "Сохранить",
-    delete = "Удалить",
-    retry = "Повторить",
-    copy = "Копировать",
-    copied = "Скопировано",
-    error = "Ошибка",
-    success = "Успешно",
-    online = "В сети",
-    offline = "Не в сети",
-    later = "Позже",
+class RuAppStrings : AppStrings {
+    override val appName = "Hermes Any AI"
+    override val close = "Закрыть"
+    override val cancel = "Отмена"
+    override val save = "Сохранить"
+    override val delete = "Удалить"
+    override val retry = "Повторить"
+    override val copy = "Копировать"
+    override val copied = "Скопировано"
+    override val error = "Ошибка"
+    override val success = "Успешно"
+    override val online = "В сети"
+    override val offline = "Не в сети"
+    override val later = "Позже"
 
-    languageSection = "Язык приложения / App Language",
-    languageSubtitle = "Выберите язык интерфейса",
-    langRussian = "Русский",
-    langEnglish = "English",
+    override val languageSection = "Язык приложения / App Language"
+    override val languageSubtitle = "Выберите язык интерфейса"
+    override val langRussian = "Русский"
+    override val langEnglish = "English"
 
-    statusReadyTermux = "В сети (Termux)",
-    statusReady = "В сети",
-    statusConnecting = "Подключение...",
-    statusAuthenticating = "Авторизация...",
-    statusReconnecting = "Восстановление связи...",
-    statusFailed = "Ошибка связи",
-    statusDisconnected = "Остановлен",
-    statusDemo = "Демо-режим",
+    override val statusReadyTermux = "В сети (Termux)"
+    override val statusReady = "В сети"
+    override val statusConnecting = "Подключение..."
+    override val statusAuthenticating = "Авторизация..."
+    override val statusReconnecting = "Восстановление связи..."
+    override val statusFailed = "Ошибка связи"
+    override val statusDisconnected = "Остановлен"
+    override val statusDemo = "Демо-режим"
 
-    defaultSessionTitle = "Новая беседа",
-    shareChat = "Поделиться",
-    shareChatMarkdown = "Поделиться (Markdown)",
-    renameChat = "Переименовать",
-    renameChatTitle = "Переименовать беседу",
-    renameChatHint = "Введите новое название",
-    emptyWelcomeTitle = "Hermes Any AI",
-    emptyWelcomeSubtitle = "Ваш автономный агент прямо на Android",
-    emptyWelcomeHint = "Задайте любой вопрос, прикрепите файлы или введите / для палитры команд.",
-    inputPlaceholder = "Спросите Hermes или введите /...",
-    generating = "Генерация...",
-    stopGenerating = "Остановить",
-    send = "Отправить",
-    attachmentFile = "Вложенный файл",
-    attachmentFiles = "Вложенные файлы",
-    attachmentSingle = "Вложение",
-    fileDescription = "Файл",
-    errorGeneratingResponse = "Сбой при генерации ответа",
-    thinking = "Размышления",
-    thinkingProgress = "Размышляет...",
-    thinkingExpand = "Развернуть",
-    thinkingCollapse = "Свернуть",
-    codeCopied = "Код скопирован",
+    override val defaultSessionTitle = "Новая беседа"
+    override val shareChat = "Поделиться"
+    override val shareChatMarkdown = "Поделиться (Markdown)"
+    override val renameChat = "Переименовать"
+    override val renameChatTitle = "Переименовать беседу"
+    override val renameChatHint = "Введите новое название"
+    override val emptyWelcomeTitle = "Hermes Any AI"
+    override val emptyWelcomeSubtitle = "Ваш автономный агент прямо на Android"
+    override val emptyWelcomeHint = "Задайте любой вопрос, прикрепите файлы или введите / для палитры команд."
+    override val inputPlaceholder = "Спросите Hermes..."
+    override val generating = "Генерация..."
+    override val stopGenerating = "Остановить"
+    override val send = "Отправить"
+    override val attachmentFile = "Вложенный файл"
+    override val attachmentFiles = "Вложенные файлы"
+    override val attachmentSingle = "Вложение"
+    override val fileDescription = "Файл"
+    override val errorGeneratingResponse = "Сбой при генерации ответа"
+    override val thinking = "Размышления"
+    override val thinkingProgress = "Размышляет..."
+    override val thinkingExpand = "Развернуть"
+    override val thinkingCollapse = "Свернуть"
+    override val codeCopied = "Код скопирован"
 
-    imageSavedGallerySuccess = "Сохранено в Галерею (Pictures/Hermes)",
-    imageSaveFailed = "Не удалось сохранить",
-    imageLoadFailed = "Не удалось загрузить фото",
-    imageSaveGallery = "Сохранить в Галерею",
-    imageFullScreen = "Во весь экран",
-    imageSavingProgress = "Сохранение...",
+    override val imageSavedGallerySuccess = "Сохранено в Галерею (Pictures/Hermes)"
+    override val imageSaveFailed = "Не удалось сохранить"
+    override val imageLoadFailed = "Не удалось загрузить фото"
+    override val imageSaveGallery = "Сохранить в Галерею"
+    override val imageFullScreen = "Во весь экран"
+    override val imageSavingProgress = "Сохранение..."
 
-    sessionsTitle = "Диалоги",
-    newChat = "Новый диалог",
-    searchSessionsHint = "Поиск по беседам...",
-    sectionPinned = "Закреплённые",
-    sectionActive = "Недавние",
-    sectionArchived = "В архиве",
-    pinChat = "Закрепить",
-    unpinChat = "Открепить",
-    archiveChat = "В архив",
-    unarchiveChat = "Вернуть из архива",
-    deleteChatConfirm = "Удалить этот диалог?",
-    noSessionsFound = "Диалоги не найдены",
+    override val sessionsTitle = "Диалоги"
+    override val newChat = "Новый диалог"
+    override val searchSessionsHint = "Поиск по беседам..."
+    override val sectionPinned = "Закреплённые"
+    override val sectionActive = "Недавние"
+    override val sectionArchived = "В архиве"
+    override val pinChat = "Закрепить"
+    override val unpinChat = "Открепить"
+    override val archiveChat = "В архив"
+    override val unarchiveChat = "Вернуть из архива"
+    override val deleteChatConfirm = "Удалить этот диалог?"
+    override val noSessionsFound = "Диалоги не найдены"
 
-    settingsTitle = "Настройки и диагностика",
-    settingsSubtitle = "Управление агентом и шлюзами",
-    localAgentCardTitle = "Локальный агент Hermes",
-    localAgentCardSubtitleOnline = "В сети • 127.0.0.1:8000",
-    localAgentCardSubtitleOffline = "Ожидание запуска в Termux",
-    localAgentCardStatusOnline = "В сети",
-    localAgentCardStatusWaiting = "Ожидание",
-    checkGatewaysTitle = "Проверка шлюзов и моделей",
-    checkGatewaysDesc = "Экспресс-тест доступности шлюзов и проверка моделей вне чата с расходом 1 токен.",
-    checkGatewaysBtn = "Проверить доступность",
-    providersTitle = "Провайдеры и модели",
-    providersSubtitle = "OpenAI, Claude, Ollama, ключи",
-    configureBtn = "Настроить",
-    slashManagerTitle = "Слэш-команды агента",
-    slashManagerSubtitle = "Каталог быстрых команд и скиллов",
-    backupTitle = "Резервное копирование и экспорт",
-    backupSubtitle = "Бэкап всех бесед в JSON или восстановление",
-    createBackupBtn = "Создать бэкап",
-    restoreBackupBtn = "Восстановить",
-    backupCreated = "Резервная копия создана",
-    backupRestored = "Беседы успешно восстановлены",
-    backupError = "Ошибка резервного копирования",
-    connectionParamsAccordion = "Параметры соединения",
-    demoModeSwitch = "Автономный Демо-режим",
-    demoModeDesc = "Оффлайн эмуляция агента без Termux",
-    agentWsUrlLabel = "WebSocket URL агента:",
-    scanQrBtn = "Сканировать QR-код сервера",
-    saveUrlBtn = "Сохранить адрес",
-    emulatorChip = "Эмулятор",
-    appVersionFooter = "Hermes Any AI v1.0.1 • Native Client",
+    override val settingsTitle = "Настройки и диагностика"
+    override val settingsSubtitle = "Управление агентом и шлюзами"
+    override val localAgentCardTitle = "Локальный агент Hermes"
+    override val localAgentCardSubtitleOnline = "В сети • 127.0.0.1:8000"
+    override val localAgentCardSubtitleOffline = "Ожидание запуска в Termux"
+    override val localAgentCardStatusOnline = "В сети"
+    override val localAgentCardStatusWaiting = "Ожидание"
+    override val checkGatewaysTitle = "Проверка шлюзов и моделей"
+    override val checkGatewaysDesc = "Экспресс-тест доступности шлюзов и проверка моделей вне чата с расходом 1 токен."
+    override val checkGatewaysBtn = "Проверить доступность"
+    override val providersTitle = "Провайдеры и модели"
+    override val providersSubtitle = "OpenAI, Claude, Ollama, ключи"
+    override val configureBtn = "Настроить"
+    override val slashManagerTitle = "Слэш-команды агента"
+    override val slashManagerSubtitle = "Каталог быстрых команд и скиллов"
+    override val backupTitle = "Резервное копирование и экспорт"
+    override val backupSubtitle = "Бэкап всех бесед в JSON или восстановление"
+    override val createBackupBtn = "Создать бэкап"
+    override val restoreBackupBtn = "Восстановить"
+    override val backupCreated = "Резервная копия создана"
+    override val backupRestored = "Беседы успешно восстановлены"
+    override val backupError = "Ошибка резервного копирования"
+    override val connectionParamsAccordion = "Параметры соединения"
+    override val demoModeSwitch = "Автономный Демо-режим"
+    override val demoModeDesc = "Оффлайн эмуляция агента без Termux"
+    override val agentWsUrlLabel = "WebSocket URL агента:"
+    override val scanQrBtn = "Сканировать QR-код сервера"
+    override val saveUrlBtn = "Сохранить адрес"
+    override val emulatorChip = "Эмулятор"
+    override val appVersionFooter = "Hermes Any AI v1.0.1 • Native Client"
 
-    diagTitle = "Диагностика шлюзов и моделей",
-    diagSubtitle = "Проверка доступности и микро-тест моделей",
-    diagLocalGateway = "Локальный шлюз Hermes",
-    diagExternalProviders = "Внешние провайдеры",
-    diagRandomModel = "Случайная модель: ",
-    diagModelAvailable = "Доступна",
-    diagModelError = "Сбой модели",
-    diagNoModels = "Нет доступных моделей для проверки",
-    diagCopyErrorBtn = "Скопировать текст ошибки",
-    diagErrorCopied = "Текст ошибки скопирован",
-    diagSummaryAllOk = "Все проверенные шлюзы и модели работают стабильно",
-    diagSummaryIssues = "Обнаружены сбои на некоторых шлюзах или моделях",
-    diagPollingGateways = "Опрос шлюзов и тестирование моделей...",
-    diagSampleModelCost = "Случайный выбор моделей, расход 1 токен",
-    diagSummaryFormat = "Шлюзов: %d/%d • Моделей: %d/%d • Израсходовано: ~%d ток.",
-    diagGatewayReachable = "В сети • %d мс",
-    diagGatewayUnreachable = "Недоступен",
-    diagGatewayProvReachable = "Шлюз в сети • %d мс",
-    diagGatewayProvUnreachable = "Шлюз недоступен",
-    diagGatewayErrorCode = "Ошибка шлюза: %s",
-    diagModelAvailableStats = "Доступна • %d токен • %d мс",
-    diagModelFailureDefault = "Сбой ответа модели",
-    diagModelErrorCode = "Ошибка модели: %s",
-    diagFailureWord = "Сбой",
+    // App Updates
+    override val updateSectionTitle = "Обновление приложения"
+    override val checkUpdatesBtn = "Проверить обновления"
+    override val checkingUpdates = "Проверка обновлений..."
+    override val updateAvailableTitle = "Доступно обновление"
+    override val noUpdatesTitle = "У вас актуальная версия"
+    override val currentVersionLatest = "Установлена актуальная версия приложения"
+    override val newVersionAvailableFormat = "Доступна новая версия %s"
+    override val whatIsNew = "Что нового:"
+    override val downloadAndUpdateBtn = "Скачать и обновить"
+    override val downloadingProgressFormat = "Загрузка обновления: %d%%"
+    override val installUpdateBtn = "Установить обновление"
+    override val updateErrorTitle = "Ошибка при обновлении"
+    override val installPermissionRequired = "Для установки обновления требуется разрешение на установку приложений из этого источника."
+    override val grantPermissionBtn = "Предоставить разрешение"
 
-    termuxTitle = "Статус агента в Termux",
-    termuxSubtitle = "Локальный рантайм Hermes",
-    termuxProtocolVersion = "Протокол Hermes: v1.0 • Совместимость: 100%",
-    termuxUpdateBtn = "Обновить Hermes (pip upgrade)",
-    termuxUpdating = "Запуск обновления в Termux...",
-    termuxUpdateSuccess = "Команда обновления отправлена в Termux",
-    termuxDaemonStarting = "Запуск агента в фоне...",
-    termuxDaemonStarted = "Команда запуска отправлена в Termux",
-    termuxStartDaemonBtn = "Запустить Hermes в фоне",
-    termuxOpenAppBtn = "Открыть Termux",
-    termuxAllowExternalNotice = "Убедитесь, что в Termux разрешён запуск внешних команд (allow-external-apps = true).",
+    override val diagTitle = "Диагностика шлюзов и моделей"
+    override val diagSubtitle = "Проверка доступности и микро-тест моделей"
+    override val diagLocalGateway = "Локальный шлюз Hermes"
+    override val diagExternalProviders = "Внешние провайдеры"
+    override val diagRandomModel = "Случайная модель: "
+    override val diagModelAvailable = "Доступна"
+    override val diagModelError = "Сбой модели"
+    override val diagNoModels = "Нет доступных моделей для проверки"
+    override val diagCopyErrorBtn = "Скопировать текст ошибки"
+    override val diagErrorCopied = "Текст ошибки скопирован"
+    override val diagSummaryAllOk = "Все проверенные шлюзы и модели работают стабильно"
+    override val diagSummaryIssues = "Обнаружены сбои на некоторых шлюзах или моделях"
+    override val diagPollingGateways = "Опрос шлюзов и тестирование моделей..."
+    override val diagSampleModelCost = "Случайный выбор моделей, расход 1 токен"
+    override val diagSummaryFormat = "Шлюзов: %d/%d • Моделей: %d/%d • Израсходовано: ~%d ток."
+    override val diagGatewayReachable = "В сети • %d мс"
+    override val diagGatewayUnreachable = "Недоступен"
+    override val diagGatewayProvReachable = "Шлюз в сети • %d мс"
+    override val diagGatewayProvUnreachable = "Шлюз недоступен"
+    override val diagGatewayErrorCode = "Ошибка шлюза: %s"
+    override val diagModelAvailableStats = "Доступна • %d токен • %d мс"
+    override val diagModelFailureDefault = "Сбой ответа модели"
+    override val diagModelErrorCode = "Ошибка модели: %s"
+    override val diagFailureWord = "Сбой"
 
-    providerSheetTitle = "Провайдеры и модели",
-    providerSheetSubtitle = "Настройка ключей доступа и выбор активной модели",
-    fallbackModelBannerTitle = "Резервная модель:",
-    fallbackModelBannerDesc = "Автоматически включится при ошибках или исчерпании лимитов основной модели (429).",
-    fallbackModelClearBtn = "Снять",
-    fallbackBadge = "Резервная",
-    setFallbackBtnDesc = "Назначить резервной моделью",
-    apiKeyLabel = "API Ключ:",
-    apiKeySaveBtn = "Сохранить ключ",
-    apiKeySavedToast = "Ключ надёжно сохранён в Keystore",
-    testLatencyBtn = "Тест связи",
-    addCustomProviderTitle = "Добавить свой провайдер",
-    customProviderNameLabel = "Название провайдера",
-    customProviderUrlLabel = "Base URL эндпоинта",
-    customProviderKeyLabel = "API Ключ (опционально)",
-    customProviderAddBtn = "Добавить провайдер",
-    provPollingHermes = "Опрос установленного Hermes...",
-    provNoProvidersConfigured = "Провайдеры пока не настроены в Hermes",
-    provNoProvidersHint = "Добавьте провайдера в конфиг агента или подключитесь к запущенному серверу",
-    provAddProviderBtn = "Добавить провайдера",
-    provStatusConnected = "Подключен",
-    provStatusAuthRequired = "Требуется ключ",
-    provStatusError = "Ошибка",
-    provStatusDisconnected = "Отключен",
-    provNewChip = "Новый",
-    provCustomBadge = "Пользовательский",
-    provPrimaryBadge = "Основная",
-    provAvailableModelsCount = "Доступные модели (%d):",
-    provNoModelsList = "Провайдер не передал список отдельных моделей. Текущая модель: %s",
-    provNeedApiKeyNotice = "Для моделей %s сначала укажите API-ключ ниже",
-    provApiKeyLabel = "API-ключ провайдера:",
-    provEncryptedKeystore = "Зашифрован в Keystore",
-    provPasteKey = "Вставить ключ",
-    provHideKey = "Скрыть ключ",
-    provShowKey = "Показать ключ",
-    provKeySavedPlaceholder = "•••••••••••••••• (Ключ сохранён)",
-    provEnterKeyPlaceholder = "Введите ключ API...",
-    provSaveToHermes = "Сохранить в Hermes",
-    provKeySavedNotice = "✓ Ключ сохранён в защищённом хранилище и передан агенту Hermes",
-    provDeleteTitle = "Удалить провайдера?",
-    provDeleteConfirm = "Провайдер «%s» будет удалён из файла конфигурации агента Hermes (config.yaml), а сохранённый API-ключ будет безвозвратно стёрт из защищённого хранилища устройства.",
-    provAddTitle = "Новый провайдер ИИ",
-    provAddSubtitle = "Настройки изменят файл config.yaml агента",
-    provNameLabel = "1. Название провайдера *",
-    provNameHint = "например: DeepSeek, Groq",
-    provNameLimit = "Ограничение до 16 символов",
-    provNameLimitReached = "Достигнут предел в 16 символов",
-    provProtocolLabel = "2. Тип взаимодействия (API протокол) *",
-    provUrlLabel = "3. Base URL *",
-    provUrlError = "URL должен начинаться с http:// или https://",
-    provUrlDesc = "Адрес API сервера с версией эндпоинта",
-    provKeyLabel = "4. API-ключ (сохраняется в Android Keystore)",
-    provKeyNotice = "🔒 Ключ шифруется аппаратным Keystore и передаётся строго в конфиг агента без попадания в логи",
-    provTestingConnection = "Проверка связи и поиск моделей...",
-    provTestConnectionBtn = "Проверить соединение и модели",
-    provTestSuccessLatency = "Связь успешна! Отклик: %d мс",
-    provTestSuccessModels = "Связь успешна! Отклик: %d мс (найдено моделей: %d)",
-    provTestFailed = "Сбой соединения с сервером",
-    provModelsDiscovered = "Обнаружено моделей (%d):",
-    provMoreModels = "+ еще %d",
-    provSaveConfigError = "Ошибка сохранения в конфиг Hermes",
+    override val termuxTitle = "Статус агента в Termux"
+    override val termuxSubtitle = "Локальный рантайм Hermes"
+    override val termuxProtocolVersion = "Протокол Hermes: v1.0 • Совместимость: 100%"
+    override val termuxUpdateBtn = "Обновить Hermes (pip upgrade)"
+    override val termuxUpdating = "Запуск обновления в Termux..."
+    override val termuxUpdateSuccess = "Команда обновления отправлена в Termux"
+    override val termuxDaemonStarting = "Запуск агента в фоне..."
+    override val termuxDaemonStarted = "Команда запуска отправлена в Termux"
+    override val termuxStartDaemonBtn = "Запустить Hermes в фоне"
+    override val termuxOpenAppBtn = "Открыть Termux"
+    override val termuxAllowExternalNotice = "Убедитесь, что в Termux разрешён запуск внешних команд (allow-external-apps = true)."
 
-    slashManagerAddBtn = "Добавить команду (например, /quota)",
-    slashManagerSearchHint = "Поиск по командам...",
-    slashManagerNotFound = "Команды не найдены",
-    slashManagerMoveUp = "Поднять выше",
-    slashManagerMoveDown = "Опустить ниже",
-    slashManagerEdit = "Редактировать",
-    slashManagerDelete = "Удалить команду",
-    slashManagerResetDefaults = "Сброс к исходным",
-    slashManagerDone = "Готово",
-    slashDeleteTitle = "Удалить команду?",
-    slashDeleteConfirm = "Команда «%s» будет удалена из всплывающей палитры чата.",
-    slashEditTitle = "Редактировать команду",
-    slashNewTitle = "Новая слэш-команда",
-    slashCmdNameLabel = "Имя команды *",
-    slashCmdTitleLabel = "Название *",
-    slashCmdTitlePlaceholder = "Проверка квот",
-    slashCmdDescLabel = "Описание",
-    slashCmdDescPlaceholder = "Запрос лимита токенов и баланса",
-    slashCmdTemplateLabel = "Шаблон отправки (необязательно)",
-    slashErrorEmptyName = "Укажите имя команды",
-    slashErrorEmptyTitle = "Укажите название команды",
-    slashPaletteTitle = "Команды Hermes",
-    slashPaletteSelect = "Выбрать",
+    override val providerSheetTitle = "Провайдеры и модели"
+    override val providerSheetSubtitle = "Настройка ключей доступа и выбор активной модели"
+    override val fallbackModelBannerTitle = "Резервная модель:"
+    override val fallbackModelBannerDesc = "Автоматически включится при ошибках или исчерпании лимитов основной модели (429)."
+    override val fallbackModelClearBtn = "Снять"
+    override val fallbackBadge = "Резервная"
+    override val setFallbackBtnDesc = "Назначить резервной моделью"
+    override val apiKeyLabel = "API Ключ:"
+    override val apiKeySaveBtn = "Сохранить ключ"
+    override val apiKeySavedToast = "Ключ надёжно сохранён в Keystore"
+    override val testLatencyBtn = "Тест связи"
+    override val addCustomProviderTitle = "Добавить свой провайдер"
+    override val customProviderNameLabel = "Название провайдера"
+    override val customProviderUrlLabel = "Base URL эндпоинта"
+    override val customProviderKeyLabel = "API Ключ (опционально)"
+    override val customProviderAddBtn = "Добавить провайдер"
+    override val provPollingHermes = "Опрос установленного Hermes..."
+    override val provNoProvidersConfigured = "Провайдеры пока не настроены в Hermes"
+    override val provNoProvidersHint = "Добавьте провайдера в конфиг агента или подключитесь к запущенному серверу"
+    override val provAddProviderBtn = "Добавить провайдера"
+    override val provStatusConnected = "Подключен"
+    override val provStatusAuthRequired = "Требуется ключ"
+    override val provStatusError = "Ошибка"
+    override val provStatusDisconnected = "Отключен"
+    override val provNewChip = "Новый"
+    override val provCustomBadge = "Пользовательский"
+    override val provPrimaryBadge = "Основная"
+    override val provAvailableModelsCount = "Доступные модели (%d):"
+    override val provNoModelsList = "Провайдер не передал список отдельных моделей. Текущая модель: %s"
+    override val provNeedApiKeyNotice = "Для моделей %s сначала укажите API-ключ ниже"
+    override val provApiKeyLabel = "API-ключ провайдера:"
+    override val provEncryptedKeystore = "Зашифрован в Keystore"
+    override val provPasteKey = "Вставить ключ"
+    override val provHideKey = "Скрыть ключ"
+    override val provShowKey = "Показать ключ"
+    override val provKeySavedPlaceholder = "•••••••••••••••• (Ключ сохранён)"
+    override val provEnterKeyPlaceholder = "Введите ключ API..."
+    override val provSaveToHermes = "Сохранить в Hermes"
+    override val provKeySavedNotice = "✓ Ключ сохранён в защищённом хранилище и передан агенту Hermes"
+    override val provDeleteTitle = "Удалить провайдера?"
+    override val provDeleteConfirm = "Провайдер «%s» будет удалён из файла конфигурации агента Hermes (config.yaml), а сохранённый API-ключ будет безвозвратно стёрт из защищённого хранилища устройства."
+    override val provAddTitle = "Новый провайдер ИИ"
+    override val provAddSubtitle = "Настройки изменят файл config.yaml агента"
+    override val provNameLabel = "1. Название провайдера *"
+    override val provNameHint = "например: DeepSeek, Groq"
+    override val provNameLimit = "Ограничение до 16 символов"
+    override val provNameLimitReached = "Достигнут предел в 16 символов"
+    override val provProtocolLabel = "2. Тип взаимодействия (API протокол) *"
+    override val provUrlLabel = "3. Base URL *"
+    override val provUrlError = "URL должен начинаться с http:// или https://"
+    override val provUrlDesc = "Адрес API сервера с версией эндпоинта"
+    override val provKeyLabel = "4. API-ключ (сохраняется в Android Keystore)"
+    override val provKeyNotice = "🔒 Ключ шифруется аппаратным Keystore и передаётся строго в конфиг агента без попадания в логи"
+    override val provTestingConnection = "Проверка связи и поиск моделей..."
+    override val provTestConnectionBtn = "Проверить соединение и модели"
+    override val provTestSuccessLatency = "Связь успешна! Отклик: %d мс"
+    override val provTestSuccessModels = "Связь успешна! Отклик: %d мс (найдено моделей: %d)"
+    override val provTestFailed = "Сбой соединения с сервером"
+    override val provModelsDiscovered = "Обнаружено моделей (%d):"
+    override val provMoreModels = "+ еще %d"
+    override val provSaveConfigError = "Ошибка сохранения в конфиг Hermes"
 
-    onboardingWelcome = "Добро пожаловать в Hermes",
-    onboardingTagline = "Автономный AI-агент прямо на вашем телефоне",
-    onboardingTermuxDetected = "Termux обнаружен в системе",
-    onboardingTermuxNotInstalled = "Termux не установлен",
-    onboardingTermuxDescDetected = "Агент может запускаться в скрытом фоновом режиме",
-    onboardingTermuxDescNotInstalled = "Для локального запуска агента требуется среда Termux",
-    onboardingInstallTermuxBtn = "Установить Termux (F-Droid / GitHub)",
-    onboardingStartDaemonBtn = "Запустить Hermes в фоне",
-    onboardingFirstSetupTitle = "Первая настройка Hermes",
-    onboardingCopySetupCommand = "Копировать команду",
-    onboardingCommandCopied = "Команда скопирована!",
-    onboardingRemoteServerBtn = "Удалённый сервер",
-    onboardingDemoModeBtn = "Демо-режим",
-    onboardingSkipBtn = "Позже",
-    onboardingConnectServerBtn = "Подключиться к серверу",
-    onboardingScanQrPrompt = "Сканировать QR-код сервера",
-    onboardingQrRecognized = "QR-код распознан: ",
-    onboardingCheckInstalledBtn = "Проверить снова",
-    onboardingCopyAndOpenTermuxBtn = "Скопировать и открыть Termux",
-    onboardingDaemonSentToast = "Команда запуска отправлена в Termux",
-    onboardingStep1Title = "Шаг 1: Разовая установка Hermes",
-    onboardingStep1Desc = "В чистом Termux нет Hermes. Скопируйте команду, откройте Termux, вставьте её (долгий тап -> Paste) и нажмите Enter:",
-    onboardingStep2Title = "Шаг 2: Фоновый запуск агента",
-    onboardingStep2Desc = "После завершения установки в Termux нажмите кнопку ниже для старта в фоне:",
+    override val slashManagerAddBtn = "Добавить команду (например, /quota)"
+    override val slashManagerSearchHint = "Поиск по командам..."
+    override val slashManagerNotFound = "Команды не найдены"
+    override val slashManagerMoveUp = "Поднять выше"
+    override val slashManagerMoveDown = "Опустить ниже"
+    override val slashManagerEdit = "Редактировать"
+    override val slashManagerDelete = "Удалить команду"
+    override val slashManagerResetDefaults = "Сброс к исходным"
+    override val slashManagerDone = "Готово"
+    override val slashDeleteTitle = "Удалить команду?"
+    override val slashDeleteConfirm = "Команда «%s» будет удалена из всплывающей палитры чата."
+    override val slashEditTitle = "Редактировать команду"
+    override val slashNewTitle = "Новая слэш-команда"
+    override val slashCmdNameLabel = "Имя команды *"
+    override val slashCmdTitleLabel = "Название *"
+    override val slashCmdTitlePlaceholder = "Проверка квот"
+    override val slashCmdDescLabel = "Описание"
+    override val slashCmdDescPlaceholder = "Запрос лимита токенов и баланса"
+    override val slashCmdTemplateLabel = "Шаблон отправки (необязательно)"
+    override val slashErrorEmptyName = "Укажите имя команды"
+    override val slashErrorEmptyTitle = "Укажите название команды"
+    override val slashPaletteTitle = "Команды Hermes"
+    override val slashPaletteSelect = "Выбрать"
 
-    approvalTitle = "Требуется подтверждение действия",
-    approvalParams = "Параметры:",
-    approvalApprove = "Разрешить",
-    approvalDeny = "Отклонить",
-    approvalActionProcessed = "Действие обработано",
-    approvalActionPending = "Запрос подтверждения действия",
-    approvalToolLabel = "Инструмент: ",
-    approvalCollapse = "▲ Свернуть",
-    approvalExpandFull = "▼ Развернуть полностью",
-    approvalUserAllowed = "✓ Разрешено вами",
-    approvalAlwaysAllowed = "✓ Всегда разрешено для этой команды",
-    approvalUserDenied = "✕ Отклонено вами",
-    approvalAlwaysAllowAction = "Всегда разрешать для этой команды",
-    clarifyTitle = "Уточняющий вопрос агента",
-    clarifyPromptTitle = "Уточняющий вопрос"
-)
+    override val onboardingWelcome = "Добро пожаловать в Hermes"
+    override val onboardingTagline = "Автономный AI-агент прямо на вашем телефоне"
+    override val onboardingTermuxDetected = "Termux обнаружен в системе"
+    override val onboardingTermuxNotInstalled = "Termux не установлен"
+    override val onboardingTermuxDescDetected = "Агент может запускаться в скрытом фоновом режиме"
+    override val onboardingTermuxDescNotInstalled = "Для локального запуска агента требуется среда Termux"
+    override val onboardingInstallTermuxBtn = "Установить Termux (F-Droid / GitHub)"
+    override val onboardingStartDaemonBtn = "Запустить Hermes в фоне"
+    override val onboardingFirstSetupTitle = "Первая настройка Hermes"
+    override val onboardingCopySetupCommand = "Копировать команду"
+    override val onboardingCommandCopied = "Команда скопирована!"
+    override val onboardingRemoteServerBtn = "Удалённый сервер"
+    override val onboardingDemoModeBtn = "Демо-режим"
+    override val onboardingSkipBtn = "Позже"
+    override val onboardingConnectServerBtn = "Подключиться к серверу"
+    override val onboardingScanQrPrompt = "Сканировать QR-код сервера"
+    override val onboardingQrRecognized = "QR-код распознан: "
+    override val onboardingCheckInstalledBtn = "Проверить снова"
+    override val onboardingCopyAndOpenTermuxBtn = "Скопировать и открыть Termux"
+    override val onboardingDaemonSentToast = "Команда запуска отправлена в Termux"
+    override val onboardingStep1Title = "Шаг 1: Разовая установка Hermes"
+    override val onboardingStep1Desc = "В чистом Termux нет Hermes. Скопируйте команду, откройте Termux, вставьте её (долгий тап -> Paste) и нажмите Enter:"
+    override val onboardingStep2Title = "Шаг 2: Фоновый запуск агента"
+    override val onboardingStep2Desc = "После завершения установки в Termux нажмите кнопку ниже для старта в фоне:"
 
-val EnStrings = AppStrings(
-    appName = "Hermes Any AI",
-    close = "Close",
-    cancel = "Cancel",
-    save = "Save",
-    delete = "Delete",
-    retry = "Retry",
-    copy = "Copy",
-    copied = "Copied",
-    error = "Error",
-    success = "Success",
-    online = "Online",
-    offline = "Offline",
-    later = "Later",
+    override val approvalTitle = "Требуется подтверждение действия"
+    override val approvalParams = "Параметры:"
+    override val approvalApprove = "Разрешить"
+    override val approvalDeny = "Отклонить"
+    override val approvalActionProcessed = "Действие обработано"
+    override val approvalActionPending = "Запрос подтверждения действия"
+    override val approvalToolLabel = "Инструмент: "
+    override val approvalCollapse = "▲ Свернуть"
+    override val approvalExpandFull = "▼ Развернуть полностью"
+    override val approvalUserAllowed = "✓ Разрешено вами"
+    override val approvalAlwaysAllowed = "✓ Всегда разрешено для этой команды"
+    override val approvalUserDenied = "✕ Отклонено вами"
+    override val approvalAlwaysAllowAction = "Всегда разрешать для этой команды"
+    override val clarifyTitle = "Уточняющий вопрос агента"
+    override val clarifyPromptTitle = "Уточняющий вопрос"
+}
 
-    languageSection = "App Language / Язык интерфейса",
-    languageSubtitle = "Choose display language",
-    langRussian = "Русский",
-    langEnglish = "English",
+class EnAppStrings : AppStrings {
+    override val appName = "Hermes Any AI"
+    override val close = "Close"
+    override val cancel = "Cancel"
+    override val save = "Save"
+    override val delete = "Delete"
+    override val retry = "Retry"
+    override val copy = "Copy"
+    override val copied = "Copied"
+    override val error = "Error"
+    override val success = "Success"
+    override val online = "Online"
+    override val offline = "Offline"
+    override val later = "Later"
 
-    statusReadyTermux = "Online (Termux)",
-    statusReady = "Online",
-    statusConnecting = "Connecting...",
-    statusAuthenticating = "Authenticating...",
-    statusReconnecting = "Reconnecting...",
-    statusFailed = "Connection Error",
-    statusDisconnected = "Stopped",
-    statusDemo = "Demo Mode",
+    override val languageSection = "App Language / Язык интерфейса"
+    override val languageSubtitle = "Choose display language"
+    override val langRussian = "Русский"
+    override val langEnglish = "English"
 
-    defaultSessionTitle = "New Chat",
-    shareChat = "Share",
-    shareChatMarkdown = "Share (Markdown)",
-    renameChat = "Rename",
-    renameChatTitle = "Rename Conversation",
-    renameChatHint = "Enter conversation name",
-    emptyWelcomeTitle = "Hermes Any AI",
-    emptyWelcomeSubtitle = "Your autonomous agent right on Android",
-    emptyWelcomeHint = "Ask any question, attach files, or type / for command palette.",
-    inputPlaceholder = "Ask Hermes or type /...",
-    generating = "Generating...",
-    stopGenerating = "Stop",
-    send = "Send",
-    attachmentFile = "Attachment",
-    attachmentFiles = "Attachments",
-    attachmentSingle = "Attachment",
-    fileDescription = "File",
-    errorGeneratingResponse = "Error generating response",
-    thinking = "Reasoning",
-    thinkingProgress = "Thinking...",
-    thinkingExpand = "Expand",
-    thinkingCollapse = "Collapse",
-    codeCopied = "Code copied",
+    override val statusReadyTermux = "Online (Termux)"
+    override val statusReady = "Online"
+    override val statusConnecting = "Connecting..."
+    override val statusAuthenticating = "Authenticating..."
+    override val statusReconnecting = "Reconnecting..."
+    override val statusFailed = "Connection Error"
+    override val statusDisconnected = "Stopped"
+    override val statusDemo = "Demo Mode"
 
-    imageSavedGallerySuccess = "Saved to Gallery (Pictures/Hermes)",
-    imageSaveFailed = "Failed to save image",
-    imageLoadFailed = "Failed to load image",
-    imageSaveGallery = "Save to Gallery",
-    imageFullScreen = "Fullscreen",
-    imageSavingProgress = "Saving...",
+    override val defaultSessionTitle = "New Chat"
+    override val shareChat = "Share"
+    override val shareChatMarkdown = "Share (Markdown)"
+    override val renameChat = "Rename"
+    override val renameChatTitle = "Rename Conversation"
+    override val renameChatHint = "Enter conversation name"
+    override val emptyWelcomeTitle = "Hermes Any AI"
+    override val emptyWelcomeSubtitle = "Your autonomous agent right on Android"
+    override val emptyWelcomeHint = "Ask any question, attach files, or type / for command palette."
+    override val inputPlaceholder = "Ask Hermes..."
+    override val generating = "Generating..."
+    override val stopGenerating = "Stop"
+    override val send = "Send"
+    override val attachmentFile = "Attachment"
+    override val attachmentFiles = "Attachments"
+    override val attachmentSingle = "Attachment"
+    override val fileDescription = "File"
+    override val errorGeneratingResponse = "Error generating response"
+    override val thinking = "Reasoning"
+    override val thinkingProgress = "Thinking..."
+    override val thinkingExpand = "Expand"
+    override val thinkingCollapse = "Collapse"
+    override val codeCopied = "Code copied"
 
-    sessionsTitle = "Conversations",
-    newChat = "New Chat",
-    searchSessionsHint = "Search conversations...",
-    sectionPinned = "Pinned",
-    sectionActive = "Recent",
-    sectionArchived = "Archived",
-    pinChat = "Pin",
-    unpinChat = "Unpin",
-    archiveChat = "Archive",
-    unarchiveChat = "Unarchive",
-    deleteChatConfirm = "Delete this conversation?",
-    noSessionsFound = "No conversations found",
+    override val imageSavedGallerySuccess = "Saved to Gallery (Pictures/Hermes)"
+    override val imageSaveFailed = "Failed to save image"
+    override val imageLoadFailed = "Failed to load image"
+    override val imageSaveGallery = "Save to Gallery"
+    override val imageFullScreen = "Fullscreen"
+    override val imageSavingProgress = "Saving..."
 
-    settingsTitle = "Settings & Diagnostics",
-    settingsSubtitle = "Agent and gateway management",
-    localAgentCardTitle = "Local Hermes Agent",
-    localAgentCardSubtitleOnline = "Online • 127.0.0.1:8000",
-    localAgentCardSubtitleOffline = "Waiting for Termux launch",
-    localAgentCardStatusOnline = "Online",
-    localAgentCardStatusWaiting = "Waiting",
-    checkGatewaysTitle = "Gateway & Model Health Check",
-    checkGatewaysDesc = "Express test for gateway reachability and 1-token model check outside chat.",
-    checkGatewaysBtn = "Check Availability",
-    providersTitle = "Providers & Models",
-    providersSubtitle = "OpenAI, Claude, Ollama, API Keys",
-    configureBtn = "Configure",
-    slashManagerTitle = "Agent Slash Commands",
-    slashManagerSubtitle = "Catalog of quick commands and skills",
-    backupTitle = "Backup & Export",
-    backupSubtitle = "Export all chats to JSON or restore from backup",
-    createBackupBtn = "Create Backup",
-    restoreBackupBtn = "Restore",
-    backupCreated = "Backup created successfully",
-    backupRestored = "Conversations restored successfully",
-    backupError = "Backup failed",
-    connectionParamsAccordion = "Connection Parameters",
-    demoModeSwitch = "Autonomous Demo Mode",
-    demoModeDesc = "Offline agent emulation without Termux",
-    agentWsUrlLabel = "Agent WebSocket URL:",
-    scanQrBtn = "Scan Server QR Code",
-    saveUrlBtn = "Save Address",
-    emulatorChip = "Emulator",
-    appVersionFooter = "Hermes Any AI v1.0.1 • Native Client",
+    override val sessionsTitle = "Conversations"
+    override val newChat = "New Chat"
+    override val searchSessionsHint = "Search conversations..."
+    override val sectionPinned = "Pinned"
+    override val sectionActive = "Recent"
+    override val sectionArchived = "Archived"
+    override val pinChat = "Pin"
+    override val unpinChat = "Unpin"
+    override val archiveChat = "Archive"
+    override val unarchiveChat = "Unarchive"
+    override val deleteChatConfirm = "Delete this conversation?"
+    override val noSessionsFound = "No conversations found"
 
-    diagTitle = "Gateway & Model Diagnostics",
-    diagSubtitle = "Reachability check and 1-token model micro-test",
-    diagLocalGateway = "Local Hermes Gateway",
-    diagExternalProviders = "External Providers",
-    diagRandomModel = "Sample model: ",
-    diagModelAvailable = "Available",
-    diagModelError = "Model error",
-    diagNoModels = "No models available to test",
-    diagCopyErrorBtn = "Copy Error Text",
-    diagErrorCopied = "Error diagnostic text copied",
-    diagSummaryAllOk = "All checked gateways and models are working properly",
-    diagSummaryIssues = "Issues detected on some gateways or models",
-    diagPollingGateways = "Probing gateways and testing models...",
-    diagSampleModelCost = "Random model selection, cost: ~1 token",
-    diagSummaryFormat = "Gateways: %d/%d • Models: %d/%d • Consumed: ~%d tok.",
-    diagGatewayReachable = "Online • %d ms",
-    diagGatewayUnreachable = "Unreachable",
-    diagGatewayProvReachable = "Gateway Online • %d ms",
-    diagGatewayProvUnreachable = "Gateway Unreachable",
-    diagGatewayErrorCode = "Gateway Error: %s",
-    diagModelAvailableStats = "Available • %d token • %d ms",
-    diagModelFailureDefault = "Model response failure",
-    diagModelErrorCode = "Model Error: %s",
-    diagFailureWord = "Failure",
+    override val settingsTitle = "Settings & Diagnostics"
+    override val settingsSubtitle = "Agent and gateway management"
+    override val localAgentCardTitle = "Local Hermes Agent"
+    override val localAgentCardSubtitleOnline = "Online • 127.0.0.1:8000"
+    override val localAgentCardSubtitleOffline = "Waiting for Termux launch"
+    override val localAgentCardStatusOnline = "Online"
+    override val localAgentCardStatusWaiting = "Waiting"
+    override val checkGatewaysTitle = "Gateway & Model Health Check"
+    override val checkGatewaysDesc = "Express test for gateway reachability and 1-token model check outside chat."
+    override val checkGatewaysBtn = "Check Availability"
+    override val providersTitle = "Providers & Models"
+    override val providersSubtitle = "OpenAI, Claude, Ollama, API Keys"
+    override val configureBtn = "Configure"
+    override val slashManagerTitle = "Agent Slash Commands"
+    override val slashManagerSubtitle = "Catalog of quick commands and skills"
+    override val backupTitle = "Backup & Export"
+    override val backupSubtitle = "Export all chats to JSON or restore from backup"
+    override val createBackupBtn = "Create Backup"
+    override val restoreBackupBtn = "Restore"
+    override val backupCreated = "Backup created successfully"
+    override val backupRestored = "Conversations restored successfully"
+    override val backupError = "Backup failed"
+    override val connectionParamsAccordion = "Connection Parameters"
+    override val demoModeSwitch = "Autonomous Demo Mode"
+    override val demoModeDesc = "Offline agent emulation without Termux"
+    override val agentWsUrlLabel = "Agent WebSocket URL:"
+    override val scanQrBtn = "Scan Server QR Code"
+    override val saveUrlBtn = "Save Address"
+    override val emulatorChip = "Emulator"
+    override val appVersionFooter = "Hermes Any AI v1.0.1 • Native Client"
 
-    termuxTitle = "Hermes Agent in Termux",
-    termuxSubtitle = "Local Termux Runtime",
-    termuxProtocolVersion = "Hermes Protocol: v1.0 • Compatibility: 100%",
-    termuxUpdateBtn = "Update Hermes (pip upgrade)",
-    termuxUpdating = "Starting update in Termux...",
-    termuxUpdateSuccess = "Update command sent to Termux",
-    termuxDaemonStarting = "Starting agent in background...",
-    termuxDaemonStarted = "Start command sent to Termux",
-    termuxStartDaemonBtn = "Start Hermes in Background",
-    termuxOpenAppBtn = "Open Termux",
-    termuxAllowExternalNotice = "Ensure external command execution is enabled in Termux (allow-external-apps = true).",
+    // App Updates
+    override val updateSectionTitle = "App Updates"
+    override val checkUpdatesBtn = "Check for Updates"
+    override val checkingUpdates = "Checking for updates..."
+    override val updateAvailableTitle = "Update Available"
+    override val noUpdatesTitle = "App is Up to Date"
+    override val currentVersionLatest = "You are running the latest version of the app"
+    override val newVersionAvailableFormat = "New version %s is available"
+    override val whatIsNew = "What's new:"
+    override val downloadAndUpdateBtn = "Download & Update"
+    override val downloadingProgressFormat = "Downloading update: %d%%"
+    override val installUpdateBtn = "Install Update"
+    override val updateErrorTitle = "Update Error"
+    override val installPermissionRequired = "Permission to install apps from this source is required to perform the update."
+    override val grantPermissionBtn = "Grant Permission"
 
-    providerSheetTitle = "Providers & Models",
-    providerSheetSubtitle = "API keys setup and active model selection",
-    fallbackModelBannerTitle = "Fallback Model:",
-    fallbackModelBannerDesc = "Will automatically take over if the primary model fails or hits 429 rate limit.",
-    fallbackModelClearBtn = "Clear",
-    fallbackBadge = "Fallback",
-    setFallbackBtnDesc = "Set as fallback model",
-    apiKeyLabel = "API Key:",
-    apiKeySaveBtn = "Save Key",
-    apiKeySavedToast = "Key securely saved in Keystore",
-    testLatencyBtn = "Test Ping",
-    addCustomProviderTitle = "Add Custom Provider",
-    customProviderNameLabel = "Provider Name",
-    customProviderUrlLabel = "Endpoint Base URL",
-    customProviderKeyLabel = "API Key (optional)",
-    customProviderAddBtn = "Add Provider",
-    provPollingHermes = "Polling installed Hermes...",
-    provNoProvidersConfigured = "No providers configured in Hermes yet",
-    provNoProvidersHint = "Add a provider to agent config or connect to running server",
-    provAddProviderBtn = "Add Provider",
-    provStatusConnected = "Connected",
-    provStatusAuthRequired = "Key Required",
-    provStatusError = "Error",
-    provStatusDisconnected = "Disconnected",
-    provNewChip = "New",
-    provCustomBadge = "Custom",
-    provPrimaryBadge = "Primary",
-    provAvailableModelsCount = "Available Models (%d):",
-    provNoModelsList = "Provider has not returned specific models list. Current model: %s",
-    provNeedApiKeyNotice = "For %s models, please enter the API key below first",
-    provApiKeyLabel = "Provider API Key:",
-    provEncryptedKeystore = "Encrypted in Keystore",
-    provPasteKey = "Paste Key",
-    provHideKey = "Hide Key",
-    provShowKey = "Show Key",
-    provKeySavedPlaceholder = "•••••••••••••••• (Key saved)",
-    provEnterKeyPlaceholder = "Enter API key...",
-    provSaveToHermes = "Save to Hermes",
-    provKeySavedNotice = "✓ Key securely stored in Keystore and transferred to Hermes agent",
-    provDeleteTitle = "Delete Provider?",
-    provDeleteConfirm = "Provider '%s' will be removed from Hermes configuration (config.yaml), and the saved API key will be permanently deleted from the device Keystore.",
-    provAddTitle = "New AI Provider",
-    provAddSubtitle = "Settings will update the agent config.yaml",
-    provNameLabel = "1. Provider Name *",
-    provNameHint = "e.g.: DeepSeek, Groq",
-    provNameLimit = "Limit up to 16 characters",
-    provNameLimitReached = "16 character limit reached",
-    provProtocolLabel = "2. Interaction Type (API Protocol) *",
-    provUrlLabel = "3. Base URL *",
-    provUrlError = "URL must start with http:// or https://",
-    provUrlDesc = "API server address with endpoint version",
-    provKeyLabel = "4. API Key (stored in Android Keystore)",
-    provKeyNotice = "🔒 Key encrypted via hardware Keystore and sent strictly to agent config without logging",
-    provTestingConnection = "Testing connection and discovering models...",
-    provTestConnectionBtn = "Test Connection & Models",
-    provTestSuccessLatency = "Connection successful! Ping: %d ms",
-    provTestSuccessModels = "Connection successful! Ping: %d ms (models found: %d)",
-    provTestFailed = "Server connection failed",
-    provModelsDiscovered = "Models discovered (%d):",
-    provMoreModels = "+ %d more",
-    provSaveConfigError = "Error saving to Hermes config",
+    override val diagTitle = "Gateway & Model Diagnostics"
+    override val diagSubtitle = "Reachability check and 1-token model micro-test"
+    override val diagLocalGateway = "Local Hermes Gateway"
+    override val diagExternalProviders = "External Providers"
+    override val diagRandomModel = "Sample model: "
+    override val diagModelAvailable = "Available"
+    override val diagModelError = "Model error"
+    override val diagNoModels = "No models available to test"
+    override val diagCopyErrorBtn = "Copy Error Text"
+    override val diagErrorCopied = "Error diagnostic text copied"
+    override val diagSummaryAllOk = "All checked gateways and models are working properly"
+    override val diagSummaryIssues = "Issues detected on some gateways or models"
+    override val diagPollingGateways = "Probing gateways and testing models..."
+    override val diagSampleModelCost = "Random model selection, cost: ~1 token"
+    override val diagSummaryFormat = "Gateways: %d/%d • Models: %d/%d • Consumed: ~%d tok."
+    override val diagGatewayReachable = "Online • %d ms"
+    override val diagGatewayUnreachable = "Unreachable"
+    override val diagGatewayProvReachable = "Gateway Online • %d ms"
+    override val diagGatewayProvUnreachable = "Gateway Unreachable"
+    override val diagGatewayErrorCode = "Gateway Error: %s"
+    override val diagModelAvailableStats = "Available • %d token • %d ms"
+    override val diagModelFailureDefault = "Model response failure"
+    override val diagModelErrorCode = "Model Error: %s"
+    override val diagFailureWord = "Failure"
 
-    slashManagerAddBtn = "Add Command (e.g. /quota)",
-    slashManagerSearchHint = "Search commands...",
-    slashManagerNotFound = "No commands found",
-    slashManagerMoveUp = "Move Up",
-    slashManagerMoveDown = "Move Down",
-    slashManagerEdit = "Edit",
-    slashManagerDelete = "Delete Command",
-    slashManagerResetDefaults = "Reset to Defaults",
-    slashManagerDone = "Done",
-    slashDeleteTitle = "Delete Command?",
-    slashDeleteConfirm = "Command '%s' will be removed from chat palette.",
-    slashEditTitle = "Edit Command",
-    slashNewTitle = "New Slash Command",
-    slashCmdNameLabel = "Command Name *",
-    slashCmdTitleLabel = "Title *",
-    slashCmdTitlePlaceholder = "Quota check",
-    slashCmdDescLabel = "Description",
-    slashCmdDescPlaceholder = "Request token limit and balance",
-    slashCmdTemplateLabel = "Send Template (optional)",
-    slashErrorEmptyName = "Please specify command name",
-    slashErrorEmptyTitle = "Please specify command title",
-    slashPaletteTitle = "Hermes Commands",
-    slashPaletteSelect = "Select",
+    override val termuxTitle = "Hermes Agent in Termux"
+    override val termuxSubtitle = "Local Termux Runtime"
+    override val termuxProtocolVersion = "Hermes Protocol: v1.0 • Compatibility: 100%"
+    override val termuxUpdateBtn = "Update Hermes (pip upgrade)"
+    override val termuxUpdating = "Starting update in Termux..."
+    override val termuxUpdateSuccess = "Update command sent to Termux"
+    override val termuxDaemonStarting = "Starting agent in background..."
+    override val termuxDaemonStarted = "Start command sent to Termux"
+    override val termuxStartDaemonBtn = "Start Hermes in Background"
+    override val termuxOpenAppBtn = "Open Termux"
+    override val termuxAllowExternalNotice = "Ensure external command execution is enabled in Termux (allow-external-apps = true)."
 
-    onboardingWelcome = "Welcome to Hermes",
-    onboardingTagline = "Autonomous AI Agent right on your phone",
-    onboardingTermuxDetected = "Termux detected on device",
-    onboardingTermuxNotInstalled = "Termux is not installed",
-    onboardingTermuxDescDetected = "Agent can run seamlessly in the hidden background",
-    onboardingTermuxDescNotInstalled = "Termux environment is required for local agent execution",
-    onboardingInstallTermuxBtn = "Install Termux (F-Droid / GitHub)",
-    onboardingStartDaemonBtn = "Start Hermes in Background",
-    onboardingFirstSetupTitle = "First-time Hermes Setup",
-    onboardingCopySetupCommand = "Copy Command",
-    onboardingCommandCopied = "Command copied!",
-    onboardingRemoteServerBtn = "Remote Server",
-    onboardingDemoModeBtn = "Demo Mode",
-    onboardingSkipBtn = "Later",
-    onboardingConnectServerBtn = "Connect to Server",
-    onboardingScanQrPrompt = "Scan Server QR Code",
-    onboardingQrRecognized = "QR Code recognized: ",
-    onboardingCheckInstalledBtn = "Check Again",
-    onboardingCopyAndOpenTermuxBtn = "Copy & Open Termux",
-    onboardingDaemonSentToast = "Launch command sent to Termux",
-    onboardingStep1Title = "Step 1: One-time Hermes Setup",
-    onboardingStep1Desc = "Clean Termux does not include Hermes. Copy command, open Termux, paste (long tap -> Paste) and hit Enter:",
-    onboardingStep2Title = "Step 2: Background Launch",
-    onboardingStep2Desc = "After setup finishes in Termux, tap below to start the daemon in background:",
+    override val providerSheetTitle = "Providers & Models"
+    override val providerSheetSubtitle = "API keys setup and active model selection"
+    override val fallbackModelBannerTitle = "Fallback Model:"
+    override val fallbackModelBannerDesc = "Will automatically take over if the primary model fails or hits 429 rate limit."
+    override val fallbackModelClearBtn = "Clear"
+    override val fallbackBadge = "Fallback"
+    override val setFallbackBtnDesc = "Set as fallback model"
+    override val apiKeyLabel = "API Key:"
+    override val apiKeySaveBtn = "Save Key"
+    override val apiKeySavedToast = "Key securely saved in Keystore"
+    override val testLatencyBtn = "Test Ping"
+    override val addCustomProviderTitle = "Add Custom Provider"
+    override val customProviderNameLabel = "Provider Name"
+    override val customProviderUrlLabel = "Endpoint Base URL"
+    override val customProviderKeyLabel = "API Key (optional)"
+    override val customProviderAddBtn = "Add Provider"
+    override val provPollingHermes = "Polling installed Hermes..."
+    override val provNoProvidersConfigured = "No providers configured in Hermes yet"
+    override val provNoProvidersHint = "Add a provider to agent config or connect to running server"
+    override val provAddProviderBtn = "Add Provider"
+    override val provStatusConnected = "Connected"
+    override val provStatusAuthRequired = "Key Required"
+    override val provStatusError = "Error"
+    override val provStatusDisconnected = "Disconnected"
+    override val provNewChip = "New"
+    override val provCustomBadge = "Custom"
+    override val provPrimaryBadge = "Primary"
+    override val provAvailableModelsCount = "Available Models (%d):"
+    override val provNoModelsList = "Provider has not returned specific models list. Current model: %s"
+    override val provNeedApiKeyNotice = "For %s models, please enter the API key below first"
+    override val provApiKeyLabel = "Provider API Key:"
+    override val provEncryptedKeystore = "Encrypted in Keystore"
+    override val provPasteKey = "Paste Key"
+    override val provHideKey = "Hide Key"
+    override val provShowKey = "Show Key"
+    override val provKeySavedPlaceholder = "•••••••••••••••• (Key saved)"
+    override val provEnterKeyPlaceholder = "Enter API key..."
+    override val provSaveToHermes = "Save to Hermes"
+    override val provKeySavedNotice = "✓ Key securely stored in Keystore and transferred to Hermes agent"
+    override val provDeleteTitle = "Delete Provider?"
+    override val provDeleteConfirm = "Provider '%s' will be removed from Hermes configuration (config.yaml), and the saved API key will be permanently deleted from the device Keystore."
+    override val provAddTitle = "New AI Provider"
+    override val provAddSubtitle = "Settings will update the agent config.yaml"
+    override val provNameLabel = "1. Provider Name *"
+    override val provNameHint = "e.g.: DeepSeek, Groq"
+    override val provNameLimit = "Limit up to 16 characters"
+    override val provNameLimitReached = "16 character limit reached"
+    override val provProtocolLabel = "2. Interaction Type (API Protocol) *"
+    override val provUrlLabel = "3. Base URL *"
+    override val provUrlError = "URL must start with http:// or https://"
+    override val provUrlDesc = "API server address with endpoint version"
+    override val provKeyLabel = "4. API Key (stored in Android Keystore)"
+    override val provKeyNotice = "🔒 Key encrypted via hardware Keystore and sent strictly to agent config without logging"
+    override val provTestingConnection = "Testing connection and discovering models..."
+    override val provTestConnectionBtn = "Test Connection & Models"
+    override val provTestSuccessLatency = "Connection successful! Ping: %d ms"
+    override val provTestSuccessModels = "Connection successful! Ping: %d ms (models found: %d)"
+    override val provTestFailed = "Server connection failed"
+    override val provModelsDiscovered = "Models discovered (%d):"
+    override val provMoreModels = "+ %d more"
+    override val provSaveConfigError = "Error saving to Hermes config"
 
-    approvalTitle = "Action Approval Required",
-    approvalParams = "Parameters:",
-    approvalApprove = "Approve",
-    approvalDeny = "Deny",
-    approvalActionProcessed = "Action Processed",
-    approvalActionPending = "Action Approval Required",
-    approvalToolLabel = "Tool: ",
-    approvalCollapse = "▲ Collapse",
-    approvalExpandFull = "▼ Expand Full",
-    approvalUserAllowed = "✓ Approved by you",
-    approvalAlwaysAllowed = "✓ Always allowed for this command",
-    approvalUserDenied = "✕ Denied by you",
-    approvalAlwaysAllowAction = "Always allow for this command",
-    clarifyTitle = "Agent Clarification Request",
-    clarifyPromptTitle = "Clarification Question"
-)
+    override val slashManagerAddBtn = "Add Command (e.g. /quota)"
+    override val slashManagerSearchHint = "Search commands..."
+    override val slashManagerNotFound = "No commands found"
+    override val slashManagerMoveUp = "Move Up"
+    override val slashManagerMoveDown = "Move Down"
+    override val slashManagerEdit = "Edit"
+    override val slashManagerDelete = "Delete Command"
+    override val slashManagerResetDefaults = "Reset to Defaults"
+    override val slashManagerDone = "Done"
+    override val slashDeleteTitle = "Delete Command?"
+    override val slashDeleteConfirm = "Command '%s' will be removed from chat palette."
+    override val slashEditTitle = "Edit Command"
+    override val slashNewTitle = "New Slash Command"
+    override val slashCmdNameLabel = "Command Name *"
+    override val slashCmdTitleLabel = "Title *"
+    override val slashCmdTitlePlaceholder = "Quota check"
+    override val slashCmdDescLabel = "Description"
+    override val slashCmdDescPlaceholder = "Request token limit and balance"
+    override val slashCmdTemplateLabel = "Send Template (optional)"
+    override val slashErrorEmptyName = "Please specify command name"
+    override val slashErrorEmptyTitle = "Please specify command title"
+    override val slashPaletteTitle = "Hermes Commands"
+    override val slashPaletteSelect = "Select"
+
+    override val onboardingWelcome = "Welcome to Hermes"
+    override val onboardingTagline = "Autonomous AI Agent right on your phone"
+    override val onboardingTermuxDetected = "Termux detected on device"
+    override val onboardingTermuxNotInstalled = "Termux is not installed"
+    override val onboardingTermuxDescDetected = "Agent can run seamlessly in the hidden background"
+    override val onboardingTermuxDescNotInstalled = "Termux environment is required for local agent execution"
+    override val onboardingInstallTermuxBtn = "Install Termux (F-Droid / GitHub)"
+    override val onboardingStartDaemonBtn = "Start Hermes in Background"
+    override val onboardingFirstSetupTitle = "First-time Hermes Setup"
+    override val onboardingCopySetupCommand = "Copy Command"
+    override val onboardingCommandCopied = "Command copied!"
+    override val onboardingRemoteServerBtn = "Remote Server"
+    override val onboardingDemoModeBtn = "Demo Mode"
+    override val onboardingSkipBtn = "Later"
+    override val onboardingConnectServerBtn = "Connect to Server"
+    override val onboardingScanQrPrompt = "Scan Server QR Code"
+    override val onboardingQrRecognized = "QR Code recognized: "
+    override val onboardingCheckInstalledBtn = "Check Again"
+    override val onboardingCopyAndOpenTermuxBtn = "Copy & Open Termux"
+    override val onboardingDaemonSentToast = "Launch command sent to Termux"
+    override val onboardingStep1Title = "Step 1: One-time Hermes Setup"
+    override val onboardingStep1Desc = "Clean Termux does not include Hermes. Copy command, open Termux, paste (long tap -> Paste) and hit Enter:"
+    override val onboardingStep2Title = "Step 2: Background Launch"
+    override val onboardingStep2Desc = "After setup finishes in Termux, tap below to start the daemon in background:"
+
+    override val approvalTitle = "Action Approval Required"
+    override val approvalParams = "Parameters:"
+    override val approvalApprove = "Approve"
+    override val approvalDeny = "Deny"
+    override val approvalActionProcessed = "Action Processed"
+    override val approvalActionPending = "Action Approval Required"
+    override val approvalToolLabel = "Tool: "
+    override val approvalCollapse = "▲ Collapse"
+    override val approvalExpandFull = "▼ Expand Full"
+    override val approvalUserAllowed = "✓ Approved by you"
+    override val approvalAlwaysAllowed = "✓ Always allowed for this command"
+    override val approvalUserDenied = "✕ Denied by you"
+    override val approvalAlwaysAllowAction = "Always allow for this command"
+    override val clarifyTitle = "Agent Clarification Request"
+    override val clarifyPromptTitle = "Clarification Question"
+}
+
+val RuStrings: AppStrings = RuAppStrings()
+val EnStrings: AppStrings = EnAppStrings()
+
 
 val LocalAppStrings = staticCompositionLocalOf { RuStrings }
 

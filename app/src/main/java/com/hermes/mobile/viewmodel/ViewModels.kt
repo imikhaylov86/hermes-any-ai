@@ -471,6 +471,62 @@ class ChatViewModel(
             }
         }
     }
+
+    // --- In-App Updates ---
+    val updateManager = HermesApp.instance.updateManager
+    private val _updateState = MutableStateFlow<com.hermes.mobile.domain.update.UpdateState>(com.hermes.mobile.domain.update.UpdateState.Idle)
+    val updateState: StateFlow<com.hermes.mobile.domain.update.UpdateState> = _updateState.asStateFlow()
+
+    fun checkForUpdates(isManual: Boolean = false) {
+        viewModelScope.launch {
+            if (isManual) {
+                _updateState.value = com.hermes.mobile.domain.update.UpdateState.Checking
+            }
+            val result = updateManager.checkForUpdates()
+            result.onSuccess { info ->
+                if (info != null) {
+                    _updateState.value = com.hermes.mobile.domain.update.UpdateState.UpdateAvailable(info)
+                } else {
+                    if (isManual) {
+                        _updateState.value = com.hermes.mobile.domain.update.UpdateState.NoUpdateAvailable(com.hermes.mobile.BuildConfig.VERSION_NAME)
+                    }
+                }
+            }.onFailure { err ->
+                if (isManual) {
+                    _updateState.value = com.hermes.mobile.domain.update.UpdateState.Error(err.message ?: "Не удалось проверить обновления")
+                }
+            }
+        }
+    }
+
+    fun startDownloadUpdate(info: com.hermes.mobile.domain.update.UpdateInfo) {
+        viewModelScope.launch {
+            _updateState.value = com.hermes.mobile.domain.update.UpdateState.Downloading(info, 0)
+            val result = updateManager.downloadApk(info.asset) { percent ->
+                _updateState.value = com.hermes.mobile.domain.update.UpdateState.Downloading(info, percent)
+            }
+            result.onSuccess { apkFile ->
+                _updateState.value = com.hermes.mobile.domain.update.UpdateState.ReadyToInstall(info, apkFile.absolutePath)
+                if (updateManager.canRequestPackageInstalls()) {
+                    updateManager.installApk(apkFile)
+                }
+            }.onFailure { err ->
+                _updateState.value = com.hermes.mobile.domain.update.UpdateState.Error(err.message ?: "Ошибка при скачивании APK")
+            }
+        }
+    }
+
+    fun installDownloadedApk(apkFile: java.io.File) {
+        updateManager.installApk(apkFile)
+    }
+
+    fun requestInstallPermission() {
+        updateManager.openInstallPermissionSettings()
+    }
+
+    fun dismissUpdate() {
+        _updateState.value = com.hermes.mobile.domain.update.UpdateState.Idle
+    }
 }
 
 class SessionViewModel(

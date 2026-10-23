@@ -37,6 +37,9 @@ class HermesApp : Application() {
     lateinit var providerRepository: com.hermes.mobile.domain.repository.ProviderRepository
         private set
 
+    lateinit var updateManager: com.hermes.mobile.domain.update.UpdateManager
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -74,6 +77,8 @@ class HermesApp : Application() {
             settingsManager = settingsManager,
             keystoreManager = keystoreManager
         )
+
+        updateManager = com.hermes.mobile.domain.update.UpdateManager(this)
     }
 
     companion object {

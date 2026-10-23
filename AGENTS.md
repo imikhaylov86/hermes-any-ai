@@ -1,0 +1,82 @@
+# Инструкции для Агентов и Субагентов (Hermes Any AI)
+
+Данный документ регламентирует стандарты разработки, правила версионирования, процесс тестирования на физическом устройстве и политику релизов в проекте **Hermes Any AI** (`com.hermes.mobile`).
+
+---
+
+## 1. Стек и Архитектура
+
+- **Платформа**: Android (minSdk 31, targetSdk 35, compileSdk 35).
+- **Язык & UI**: Kotlin, Jetpack Compose (BOM 2024.10.00), Material 3, Coroutines & Flow.
+- **Сетевой уровень**: OkHttp 4.12.0, Kotlinx Serialization, WebSocket клиент для связи с агентом.
+- **Хранение данных**: Room Database (`AppDatabase`), Jetpack DataStore Preferences, Android Keystore.
+- **Интеграция с устройством**: Termux RunCommand API, Google Play Services Code Scanner, Android Package Installer API через `FileProvider`.
+
+---
+
+## 2. Процесс разработки: Черновые версии и подключенный телефон
+
+Во время разработки агенты и субагенты должны следовать принципу **итеративных черновых версий**:
+
+1. **Не выпускать релиз сразу**: Любая новая фича или правка сначала собирается в виде черновой версии и проверяется на подключенном к компьютеру телефоне.
+2. **Сборка черновой версии**:
+   ```powershell
+   .\gradlew assembleDebug
+   ```
+3. **Установка на подключенный телефон**:
+   Установка должна выполняться строго в личный профиль (**User 0**), исключая попадание в рабочий профиль (Work Profile / Island):
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\install_to_device.ps1
+   ```
+   Скрипт автоматически находит подключенное ADB-устройство, проверяет изоляцию профилей и запускает `MainActivity`.
+4. **Серия черновых тестов**: Пользователь и агент выполняют цикл:
+   *Правка кода → сборка → установка на телефон → тестирование функционала*.
+
+---
+
+## 3. Политика релизов: Сборка строго ПО ЗАПРОСУ (On Demand)
+
+> ⚠️ **КРИТИЧЕСКОЕ ПРАВИЛО:**  
+> **Сборка релизного билда и публикация в GitHub Releases производятся ТОЛЬКО ПО ЯВНОМУ ЗАПРОСУ ПОЛЬЗОВАТЕЛЯ.**  
+> Запрещено автоматически создавать релизы, пушить теги версий без прямого указания или переводить проект в статус релиза во время черновых правок.
+
+### Процедура выпуска релиза (когда пользователь дал команду):
+
+1. **Проверить и инкрементировать версию** в [`app/build.gradle.kts`](file:///d:/VibeCoding/hermes-AC/app/build.gradle.kts):
+   - `versionCode` **обязательно строго больше** предыдущего (например: `2` → `3`). Без этого Android заблокирует обновление.
+   - `versionName` обновляется по SemVer (например: `"1.0.1"` → `"1.0.2"`).
+2. **Локальная сборка релизного APK**:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\build_release.ps1
+   ```
+   Для одновременной проверки релиза на телефоне:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\build_release.ps1 -Install
+   ```
+   Готовый файл помещается в `dist/HermesAnyAI_v<version>.apk` и `app/build/outputs/apk/release/`.
+3. **Публикация на GitHub**:
+   - **Способ А (GitHub Actions workflow_dispatch)**: Запуск рабочего процесса `.github/workflows/release.yml` вручную через веб-интерфейс GitHub с указанием тега.
+   - **Способ Б (Git Tag)**: Создание и отправка тега по запросу:
+     ```bash
+     git tag v1.0.2
+     git push origin v1.0.2
+     ```
+     GitHub Actions соберет релизный APK и прикрепит его к релизу.
+
+---
+
+## 4. Система бесшовного обновления (In-App Update) и целостность данных
+
+Приложение содержит встроенный механизм обновления без потери пользовательских данных:
+
+- **Ключ цифровой подписи (Keystore)**:
+  - Все релизные сборки должны подписываться **одним и тем же сертификатом**.
+  - Если сертификат изменится, Android выдаст ошибку `INSTALL_FAILED_UPDATE_INCOMPATIBLE` и запретит обновление без удаления приложения (что приведёт к потере данных).
+- **База данных Room**:
+  - При изменении схемы Room Database запрещено удалять данные через деструктивную миграцию в релизе без предупреждения.
+  - Обязательно объявлять `Migration(M, N)` в `AppDatabase`.
+- **Компоненты In-App Update**:
+  - [`UpdateManager`](file:///d:/VibeCoding/hermes-AC/app/src/main/java/com/hermes/mobile/domain/update/UpdateManager.kt): опрашивает GitHub Releases API (`https://api.github.com/repos/imikhaylov86/hermes-any-ai/releases/latest`), сравнивает SemVer версии, скачивает APK в кэш с прогрессом и вызывает системный установщик.
+  - [`FileProvider`](file:///d:/VibeCoding/hermes-AC/app/src/main/res/xml/file_paths.xml): безопасно передает `content://` URI установщику Android с флагом `FLAG_GRANT_READ_URI_PERMISSION`.
+  - Разрешение `REQUEST_INSTALL_PACKAGES` в `AndroidManifest.xml` для Android 8.0+.
+  - [`UpdateDialog`](file:///d:/VibeCoding/hermes-AC/app/src/main/java/com/hermes/mobile/presentation/settings/UpdateDialog.kt): интерфейс на Jetpack Compose со списком изменений, индикатором загрузки и кнопкой установки.

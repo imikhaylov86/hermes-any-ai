@@ -74,6 +74,11 @@ class MainActivity : ComponentActivity() {
                 var showSlashManagerDialogFromSettings by remember { mutableStateOf(false) }
                 val diagnosticsReport by chatViewModel.diagnosticsReport.collectAsState()
                 val isDiagnosticsRunning by chatViewModel.isDiagnosticsRunning.collectAsState()
+                val updateState by chatViewModel.updateState.collectAsState()
+
+                LaunchedEffect(Unit) {
+                    chatViewModel.checkForUpdates(isManual = false)
+                }
 
                 ModalNavigationDrawer(
                     drawerState = drawerState,
@@ -142,6 +147,9 @@ class MainActivity : ComponentActivity() {
                                 android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
                             }
                         },
+                        onCheckForUpdates = {
+                            chatViewModel.checkForUpdates(isManual = true)
+                        },
                         currentLanguage = appLanguage,
                         onSelectLanguage = { lang -> chatViewModel.setAppLanguage(lang) },
                         onDismiss = { showSettingsDialogFromDrawer = false }
@@ -206,6 +214,18 @@ class MainActivity : ComponentActivity() {
                             chatViewModel.setFirstLaunchDone()
                             showOnboardingDialog = false
                         }
+                    )
+                }
+
+                if (updateState !is com.hermes.mobile.domain.update.UpdateState.Idle) {
+                    com.hermes.mobile.presentation.settings.UpdateDialog(
+                        updateState = updateState,
+                        canInstallPackages = chatViewModel.updateManager.canRequestPackageInstalls(),
+                        onCheckAgain = { chatViewModel.checkForUpdates(isManual = true) },
+                        onStartDownload = { info -> chatViewModel.startDownloadUpdate(info) },
+                        onInstallApk = { apkFile -> chatViewModel.installDownloadedApk(apkFile) },
+                        onRequestInstallPermission = { chatViewModel.requestInstallPermission() },
+                        onDismiss = { chatViewModel.dismissUpdate() }
                     )
                 }
             }
