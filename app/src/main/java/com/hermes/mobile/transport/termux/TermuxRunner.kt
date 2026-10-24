@@ -43,15 +43,19 @@ object TermuxRunner {
     // ставит зависимости и патчит установленный hermes-agent)
     const val SETUP_COMMAND = "mkdir -p ~/.termux && (grep -q 'allow-external-apps=true' ~/.termux/termux.properties 2>/dev/null || echo 'allow-external-apps=true' >> ~/.termux/termux.properties) && termux-reload-settings && (grep -q 'HERMES_DASHBOARD_SESSION_TOKEN' ~/.bashrc 2>/dev/null || echo 'export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"' >> ~/.bashrc) && (grep -q 'HERMES_DASHBOARD_TUI' ~/.bashrc 2>/dev/null || echo 'export HERMES_DASHBOARD_TUI=1' >> ~/.bashrc) && pkg update -y && pkg install -y python python-psutil git curl coreutils && pip install hermes-agent && cat > ~/.hermes_mobile_fix.py << 'PYEOF'\n" + FIX_SCRIPT + "PYEOF\npython3 ~/.hermes_mobile_fix.py"
 
-    // Команда штатного запуска агента с экспортом переменных TUI и сессионного токена
-    const val LAUNCH_COMMAND = "export PATH=\"\$HOME/.local/bin:/data/data/com.termux/files/usr/bin:\$PATH\"; export HERMES_DASHBOARD_TUI=1; export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"; termux-wake-lock; pkill -f 'hermes dashboard' 2>/dev/null; sleep 1; hermes dashboard --port 8000 --host 127.0.0.1 --no-open --skip-build --tui"
+    // Команда штатного запуска агента с экспортом переменных TUI и сессионного токена.
+    // ВАЖНО: pkill с паттерном '[h]ermes dashboard' — квадратные скобки не дают pkill -f
+    // сматчить собственный bash-процесс (в его cmdline паттерн записан как '[h]ermes',
+    // а не 'hermes'), иначе команда убивает сама себя до старта демона.
+    const val LAUNCH_COMMAND = "export PATH=\"\$HOME/.local/bin:/data/data/com.termux/files/usr/bin:\$PATH\"; export HERMES_DASHBOARD_TUI=1; export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"; termux-wake-lock; pkill -f '[h]ermes dashboard' 2>/dev/null; sleep 1; hermes dashboard --port 8000 --host 127.0.0.1 --no-open --skip-build --tui"
 
     // Фоновая команда с перезапуском при вызове (pkill старых процессов), проверкой наличия пакета,
-    // применением патча совместимости и чистым стартом в фоне через subshell & disown
-    const val BACKGROUND_DAEMON_CMD = "export PATH=\"\$HOME/.local/bin:/data/data/com.termux/files/usr/bin:\$PATH\"; export HERMES_DASHBOARD_TUI=1; export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"; termux-wake-lock; if ! command -v hermes > /dev/null 2>&1; then pkg update -y && pkg install -y python python-psutil git curl coreutils && pip install hermes-agent; fi; cat > ~/.hermes_mobile_fix.py << 'PYEOF'\n" + FIX_SCRIPT + "PYEOF\npython3 ~/.hermes_mobile_fix.py; pkill -f 'hermes dashboard' 2>/dev/null; sleep 1; HERMES_BIN=\"\$(command -v hermes || echo /data/data/com.termux/files/usr/bin/hermes)\"; (\$HERMES_BIN dashboard --port 8000 --host 127.0.0.1 --no-open --skip-build --tui > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 &) && disown -a 2>/dev/null"
+    // применением патча совместимости и чистым стартом в фоне через subshell & disown.
+    // pkill использует '[h]ermes' трюк против самоубийства команды (см. LAUNCH_COMMAND).
+    const val BACKGROUND_DAEMON_CMD = "export PATH=\"\$HOME/.local/bin:/data/data/com.termux/files/usr/bin:\$PATH\"; export HERMES_DASHBOARD_TUI=1; export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"; termux-wake-lock; if ! command -v hermes > /dev/null 2>&1; then pkg update -y && pkg install -y python python-psutil git curl coreutils && pip install hermes-agent; fi; cat > ~/.hermes_mobile_fix.py << 'PYEOF'\n" + FIX_SCRIPT + "PYEOF\npython3 ~/.hermes_mobile_fix.py; pkill -f '[h]ermes dashboard' 2>/dev/null; sleep 1; HERMES_BIN=\"\$(command -v hermes || echo /data/data/com.termux/files/usr/bin/hermes)\"; (\$HERMES_BIN dashboard --port 8000 --host 127.0.0.1 --no-open --skip-build --tui > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 &) && disown -a 2>/dev/null"
 
     // Команда обновления Hermes Agent в Termux в один клик
-    const val UPDATE_COMMAND = "export PATH=\"\$HOME/.local/bin:/data/data/com.termux/files/usr/bin:\$PATH\"; export HERMES_DASHBOARD_TUI=1; export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"; termux-wake-lock; pip install --upgrade hermes-agent && cat > ~/.hermes_mobile_fix.py << 'PYEOF'\n" + FIX_SCRIPT + "PYEOF\npython3 ~/.hermes_mobile_fix.py && pkill -f 'hermes dashboard' 2>/dev/null; sleep 1; HERMES_BIN=\"\$(command -v hermes || echo /data/data/com.termux/files/usr/bin/hermes)\"; (\$HERMES_BIN dashboard --port 8000 --host 127.0.0.1 --no-open --skip-build --tui > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 &) && disown -a 2>/dev/null"
+    const val UPDATE_COMMAND = "export PATH=\"\$HOME/.local/bin:/data/data/com.termux/files/usr/bin:\$PATH\"; export HERMES_DASHBOARD_TUI=1; export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"; termux-wake-lock; pip install --upgrade hermes-agent && cat > ~/.hermes_mobile_fix.py << 'PYEOF'\n" + FIX_SCRIPT + "PYEOF\npython3 ~/.hermes_mobile_fix.py && pkill -f '[h]ermes dashboard' 2>/dev/null; sleep 1; HERMES_BIN=\"\$(command -v hermes || echo /data/data/com.termux/files/usr/bin/hermes)\"; (\$HERMES_BIN dashboard --port 8000 --host 127.0.0.1 --no-open --skip-build --tui > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 &) && disown -a 2>/dev/null"
 
     const val F_DROID_TERMUX_URL = "https://f-droid.org/packages/com.termux/"
     const val GITHUB_TERMUX_URL = "https://github.com/termux/termux-app/releases"
@@ -91,7 +95,13 @@ object TermuxRunner {
 
     /**
      * Запускает Hermes Agent в фоновом режиме через Termux RunCommandService.
-     * Не открывает терминал и не прерывает работу пользователя в приложении.
+     *
+     * Порядок критичен: Termux exec'ит внешние команды только когда его процесс
+     * инициализирован и Activity жива. Если Termux был убит/перезагружен, команда,
+     * отправленная в мёртвый процесс, молча теряется (RunCommandService стартует
+     * процесс, но команда до TermuxService не доходит — создаётся пустая сессия).
+     * Поэтому: сначала будим Termux (Activity выводится вперёд), даём ему
+     * инициализироваться, и только затем отправляем RunCommand с задержкой.
      */
     fun startHermesDaemonInBackground(context: Context): Result<Unit> {
         return try {
@@ -99,26 +109,63 @@ object TermuxRunner {
                 return Result.failure(IllegalStateException("Termux не установлен на устройстве"))
             }
 
+            // 1. Разбудить Termux: холодный старт процесса + вывод Activity вперёд.
+            wakeUpTermuxForExecution(context)
+
+            // 2. Отправить команду с задержкой: процесс Termux должен успеть
+            //    инициализировать TermuxService и сессии (холодный старт ~2-3 сек).
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                sendRunCommandIntent(context, BACKGROUND_DAEMON_CMD)
+            }, TERMUX_WAKEUP_DELAY_MS)
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Отправляет RUN_COMMAND intent в Termux (сам по себе, без буферизации).
+     */
+    private fun sendRunCommandIntent(context: Context, command: String) {
+        try {
             val intent = Intent().apply {
                 component = ComponentName(TERMUX_PACKAGE, TERMUX_SERVICE)
                 action = ACTION_RUN_COMMAND
                 putExtra(EXTRA_RUN_COMMAND_PATH, BASH_PATH)
-                putExtra(EXTRA_RUN_COMMAND_ARGUMENTS, arrayOf("-c", BACKGROUND_DAEMON_CMD))
+                putExtra(EXTRA_RUN_COMMAND_ARGUMENTS, arrayOf("-c", command))
                 putExtra(EXTRA_RUN_COMMAND_WORKDIR, HOME_PATH)
                 putExtra(EXTRA_RUN_COMMAND_BACKGROUND, true)
-                putExtra(EXTRA_RUN_COMMAND_SESSION_ACTION, "0")
             }
-
             try {
                 context.startService(intent)
             } catch (_: Exception) {
                 // На некоторых версиях Android требуется запуск службы через ContextCompat
                 ContextCompat.startForegroundService(context, intent)
             }
+        } catch (_: Exception) {
+        }
+    }
 
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
+    /**
+     * Задержка перед отправкой RunCommand после пробуждения Termux:
+     * холодный старт процесса Termux + инициализация TermuxService.
+     */
+    private const val TERMUX_WAKEUP_DELAY_MS = 3000L
+
+    /**
+     * Гарантирует, что процесс Termux запущен и его Activity видима хотя бы
+     * мгновение — без этого RunCommandService складирует команды без exec.
+     * После запуска демона можно вернуть пользователя кнопкой "назад".
+     */
+    fun wakeUpTermuxForExecution(context: Context) {
+        try {
+            val intent = context.packageManager.getLaunchIntentForPackage(TERMUX_PACKAGE)
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                context.startActivity(intent)
+            }
+        } catch (_: Exception) {
         }
     }
 
@@ -131,21 +178,11 @@ object TermuxRunner {
                 return Result.failure(IllegalStateException("Termux не установлен на устройстве"))
             }
 
-            val intent = Intent().apply {
-                component = ComponentName(TERMUX_PACKAGE, TERMUX_SERVICE)
-                action = ACTION_RUN_COMMAND
-                putExtra(EXTRA_RUN_COMMAND_PATH, BASH_PATH)
-                putExtra(EXTRA_RUN_COMMAND_ARGUMENTS, arrayOf("-c", UPDATE_COMMAND))
-                putExtra(EXTRA_RUN_COMMAND_WORKDIR, HOME_PATH)
-                putExtra(EXTRA_RUN_COMMAND_BACKGROUND, true)
-                putExtra(EXTRA_RUN_COMMAND_SESSION_ACTION, "0")
-            }
+            wakeUpTermuxForExecution(context)
 
-            try {
-                context.startService(intent)
-            } catch (_: Exception) {
-                ContextCompat.startForegroundService(context, intent)
-            }
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                sendRunCommandIntent(context, UPDATE_COMMAND)
+            }, TERMUX_WAKEUP_DELAY_MS)
 
             Result.success(Unit)
         } catch (e: Exception) {
