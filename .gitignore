@@ -66,3 +66,7 @@ Thumbs.db
 # Temporary workspace files (clean up after task)
 tmp/*
 !tmp/.gitkeep
+
+# AI SDD starter kit and local specs (versioned locally, never pushed)
+AI_SDD/
+docs/
