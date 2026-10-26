@@ -968,7 +968,7 @@ private fun TermuxSetupStepContent(
         val levelText = when (probeLevel) {
             0 -> "Готово: демон Hermes отвечает"
             1 -> "Демон стартует…"
-            2 -> "Установка идёт: ждём поднятия демона (команда должна доработать в Termux)"
+            2 -> "Установка идёт в Termux: [6/6] запустит демон, затем здесь появится «Готово». Если в Termux виден шаг [!] — устраните его и запустите команду заново (безопасно)"
             3 -> "Termux не найден — вернитесь к шагу 1"
             else -> "Ожидаем установку… (проверка каждые 5 сек)"
         }
@@ -1016,6 +1016,18 @@ private fun TermuxSetupStepContent(
                 colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald)
             ) {
                 Text("Готово — подключиться →", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        } else {
+            // Аварийный выход: мониторинг не должен замуровывать пользователя —
+            // ручной переход к шагу запуска всегда доступен
+            OutlinedButton(
+                onClick = onNext,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp),
+                shape = AppDimensions.ShapeButton
+            ) {
+                Text("Пропустить ожидание — к запуску демона →", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     } else {
