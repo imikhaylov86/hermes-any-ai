@@ -38,9 +38,15 @@ object TermuxRunner {
 
     const val FIX_SCRIPT_PATH = "~/.hermes_mobile_fix.py"
 
+    // G14 (docs/08 §2.7): зеркала Termux недоступны из РФ на чистой установке.
+    // Fallback — прямая перезапись sources.list рабочими зеркалами (не sed-замена:
+    // дефолтные записи варьируются между версиями bootstrap — termux.org/packages.termux.dev).
+    const val MIRROR_FALLBACK = "cp \$PREFIX/etc/apt/sources.list \$PREFIX/etc/apt/sources.list.bak 2>/dev/null; printf 'deb https://grimler.se/termux/termux-packages-24 stable main\n' > \$PREFIX/etc/apt/sources.list; (pkg update -y || (printf 'deb https://termux.mentality.rip/termux/termux-packages-24 stable main\n' > \$PREFIX/etc/apt/sources.list; pkg update -y))"
     // Однострочный скрипт авто-настройки (включает allow-external-apps, настраивает ~/.bashrc,
-    // ставит зависимости и патчит установленный hermes-agent)
-    const val SETUP_COMMAND = "mkdir -p ~/.termux && (grep -q 'allow-external-apps=true' ~/.termux/termux.properties 2>/dev/null || echo 'allow-external-apps=true' >> ~/.termux/termux.properties) && termux-reload-settings && (grep -q 'HERMES_DASHBOARD_SESSION_TOKEN' ~/.bashrc 2>/dev/null || echo 'export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"' >> ~/.bashrc) && (grep -q 'HERMES_DASHBOARD_TUI' ~/.bashrc 2>/dev/null || echo 'export HERMES_DASHBOARD_TUI=1' >> ~/.bashrc) && pkg update -y && pkg install -y python python-psutil git curl coreutils && pip install hermes-agent && cat > ~/.hermes_mobile_fix.py << 'PYEOF'\n" + FIX_SCRIPT + "PYEOF\npython3 ~/.hermes_mobile_fix.py"
+    // ставит зависимости и патчит установленный hermes-agent).
+    // G14: стадийная модель, зеркальный fallback MIRROR_FALLBACK при недоступности
+    // дефолтных зеркал (РФ), явные маркеры прогресса и ошибки, wake-lock.
+    const val SETUP_COMMAND = "termux-wake-lock; mkdir -p ~/.termux && (grep -q 'allow-external-apps=true' ~/.termux/termux.properties 2>/dev/null || echo 'allow-external-apps=true' >> ~/.termux/termux.properties) && termux-reload-settings; echo '[1/5] Properties OK'; (grep -q 'HERMES_DASHBOARD_SESSION_TOKEN' ~/.bashrc 2>/dev/null || echo 'export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"' >> ~/.bashrc) && (grep -q 'HERMES_DASHBOARD_TUI' ~/.bashrc 2>/dev/null || echo 'export HERMES_DASHBOARD_TUI=1' >> ~/.bashrc); echo '[2/5] bashrc OK'; (pkg update -y || (echo 'default mirrors unreachable, switching...'; (" + MIRROR_FALLBACK + ") || echo '[!] all mirrors FAILED - check internet, then rerun')); echo '[3/5] apt update done'; pkg install -y python python-pip python-psutil git curl coreutils || echo '[!] pkg install FAILED - rerun this command later'; echo '[4/5] packages done'; (command -v python3 >/dev/null 2>&1) && ((command -v pip >/dev/null 2>&1 || command -v pip3 >/dev/null 2>&1) && (echo 'installing hermes-agent (10-15 min)...'; (pip install --retry 5 --timeout 60 hermes-agent || pip3 install --retry 5 --timeout 60 hermes-agent) && cat > ~/.hermes_mobile_fix.py << 'PYEOF'\n" + FIX_SCRIPT + "PYEOF\npython3 ~/.hermes_mobile_fix.py && echo '[5/5] DONE - return to the app') || echo '[!] pip missing - run: pkg install python-pip, then rerun') || echo '[!] python3 missing - run: pkg install python, then rerun'"
 
     // Команда штатного запуска агента с экспортом переменных TUI и сессионного токена.
     // ВАЖНО: pkill с паттерном '[h]ermes dashboard' — квадратные скобки не дают pkill -f
@@ -51,10 +57,12 @@ object TermuxRunner {
     // Фоновая команда с перезапуском при вызове (pkill старых процессов), проверкой наличия пакета,
     // применением патча совместимости и чистым стартом в фоне через subshell & disown.
     // pkill использует '[h]ermes' трюк против самоубийства команды (см. LAUNCH_COMMAND).
-    const val BACKGROUND_DAEMON_CMD = "export PATH=\"\$HOME/.local/bin:/data/data/com.termux/files/usr/bin:\$PATH\"; export HERMES_DASHBOARD_TUI=1; export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"; termux-wake-lock; if ! command -v hermes > /dev/null 2>&1; then pkg update -y && pkg install -y python python-psutil git curl coreutils && pip install hermes-agent; fi; cat > ~/.hermes_mobile_fix.py << 'PYEOF'\n" + FIX_SCRIPT + "PYEOF\npython3 ~/.hermes_mobile_fix.py; pkill -f '[h]ermes dashboard' 2>/dev/null; sleep 1; HERMES_BIN=\"\$(command -v hermes || echo /data/data/com.termux/files/usr/bin/hermes)\"; (\$HERMES_BIN dashboard --port 8000 --host 127.0.0.1 --no-open --skip-build --tui > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 &) && disown -a 2>/dev/null"
+    // G14: pkg-шаги отделены (сбой установки не блокирует запуск уже установленного hermes),
+    // wake-lock держит установку живой.
+    const val BACKGROUND_DAEMON_CMD = "export PATH=\"\$HOME/.local/bin:/data/data/com.termux/files/usr/bin:\$PATH\"; export HERMES_DASHBOARD_TUI=1; export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"; termux-wake-lock; if ! command -v hermes > /dev/null 2>&1; then (pkg update -y || (" + MIRROR_FALLBACK + ")) && pkg install -y python python-pip python-psutil git curl coreutils && (pip install --retry 5 --timeout 60 hermes-agent || pip3 install --retry 5 --timeout 60 hermes-agent) || echo '[!] install failed - open Termux and run setup again'; fi; cat > ~/.hermes_mobile_fix.py << 'PYEOF'\n" + FIX_SCRIPT + "PYEOF\npython3 ~/.hermes_mobile_fix.py 2>/dev/null; pkill -f '[h]ermes dashboard' 2>/dev/null; sleep 1; HERMES_BIN=\"\$(command -v hermes || echo /data/data/com.termux/files/usr/bin/hermes)\"; (\$HERMES_BIN dashboard --port 8000 --host 127.0.0.1 --no-open --skip-build --tui > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 &) && disown -a 2>/dev/null"
 
     // Команда обновления Hermes Agent в Termux в один клик
-    const val UPDATE_COMMAND = "export PATH=\"\$HOME/.local/bin:/data/data/com.termux/files/usr/bin:\$PATH\"; export HERMES_DASHBOARD_TUI=1; export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"; termux-wake-lock; pip install --upgrade hermes-agent && cat > ~/.hermes_mobile_fix.py << 'PYEOF'\n" + FIX_SCRIPT + "PYEOF\npython3 ~/.hermes_mobile_fix.py && pkill -f '[h]ermes dashboard' 2>/dev/null; sleep 1; HERMES_BIN=\"\$(command -v hermes || echo /data/data/com.termux/files/usr/bin/hermes)\"; (\$HERMES_BIN dashboard --port 8000 --host 127.0.0.1 --no-open --skip-build --tui > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 &) && disown -a 2>/dev/null"
+    const val UPDATE_COMMAND = "export PATH=\"\$HOME/.local/bin:/data/data/com.termux/files/usr/bin:\$PATH\"; export HERMES_DASHBOARD_TUI=1; export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"; termux-wake-lock; (pip install --retry 5 --timeout 60 --upgrade hermes-agent || pip3 install --retry 5 --timeout 60 --upgrade hermes-agent) && cat > ~/.hermes_mobile_fix.py << 'PYEOF'\n" + FIX_SCRIPT + "PYEOF\npython3 ~/.hermes_mobile_fix.py && pkill -f '[h]ermes dashboard' 2>/dev/null; sleep 1; HERMES_BIN=\"\$(command -v hermes || echo /data/data/com.termux/files/usr/bin/hermes)\"; (\$HERMES_BIN dashboard --port 8000 --host 127.0.0.1 --no-open --skip-build --tui > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 &) && disown -a 2>/dev/null"
 
     const val F_DROID_TERMUX_URL = "https://f-droid.org/packages/com.termux/"
     const val GITHUB_TERMUX_URL = "https://github.com/termux/termux-app/releases"
@@ -174,6 +182,51 @@ object TermuxRunner {
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    /**
+     * G14 (docs/08 §2.7): измерение готовности среды Hermes БЕЗ adb/ПК —
+     * приложение само опрашивает состояние. Уровни:
+     * 0 — демон отвечает (готово);
+     * 1 — порт 8000 открыт, но /api/status молчит (демон стартует);
+     * 2 — Termux-файлы присутствуют, но порта нет (установка/демон не поднялся);
+     * 3 — Termux не установлен.
+     */
+    fun probeHermesEnvironment(context: Context, restUrl: String, token: String, callback: (Int) -> Unit) {
+        Thread {
+            val level: Int = when {
+                // 0: REST health-check демона (любой HTTP-ответ = демон жив)
+                runCatching {
+                    val url = java.net.URL(restUrl.trimEnd('/') + "/status")
+                    val conn = url.openConnection() as java.net.HttpURLConnection
+                    conn.connectTimeout = 2500
+                    conn.readTimeout = 2500
+                    conn.setRequestProperty("X-Hermes-Session-Token", token)
+                    try {
+                        conn.responseCode
+                    } finally {
+                        conn.disconnect()
+                    }
+                }.isSuccess -> 0
+
+                // 1: TCP-порт демона открыт (демон стартует, REST ещё не поднялся)
+                runCatching {
+                    val socket = java.net.Socket()
+                    try {
+                        socket.connect(java.net.InetSocketAddress("127.0.0.1", 8000), 2000)
+                        true
+                    } finally {
+                        socket.close()
+                    }
+                }.getOrDefault(false) -> 1
+
+                // 2: Termux установлен, но демона нет
+                isTermuxInstalled(context) -> 2
+
+                else -> 3
+            }
+            android.os.Handler(android.os.Looper.getMainLooper()).post { callback(level) }
+        }.start()
     }
 
     /**

@@ -254,11 +254,44 @@ fun OnboardingDialog(
                                     )
                                 }
                                 WizardStep.TERMUX_SETUP -> {
+                                    // G14: авто-мониторинг готовности среды (probe каждые 5с)
+                                    var isMonitoring by remember { mutableStateOf(false) }
+                                    var probeLevel by remember { mutableStateOf<Int?>(null) }
+
+                                    fun runProbe() {
+                                        TermuxRunner.probeHermesEnvironment(
+                                            context = context,
+                                            restUrl = try {
+                                                com.hermes.mobile.HermesApp.instance.settingsManager.getRestUrl()
+                                            } catch (_: Exception) {
+                                                "http://127.0.0.1:8000/api"
+                                            },
+                                            token = try {
+                                                com.hermes.mobile.HermesApp.instance.settingsManager.getSessionToken()
+                                            } catch (_: Exception) {
+                                                "hermes_mobile_local"
+                                            }
+                                        ) { level ->
+                                            probeLevel = level
+                                        }
+                                    }
+
+                                    LaunchedEffect(isMonitoring) {
+                                        while (isMonitoring) {
+                                            runProbe()
+                                            kotlinx.coroutines.delay(5000)
+                                        }
+                                    }
+
                                     TermuxSetupStepContent(
                                         command = TermuxRunner.SETUP_COMMAND,
+                                        isMonitoring = isMonitoring,
+                                        probeLevel = probeLevel,
+                                        onCheckNow = { runProbe() },
                                         onCopyAndOpenTermux = {
                                             clipboardManager.setText(AnnotatedString(TermuxRunner.SETUP_COMMAND))
                                             Toast.makeText(context, appStrings.onboardingCommandCopied, Toast.LENGTH_SHORT).show()
+                                            isMonitoring = true
                                             if (!TermuxRunner.openTermux(context)) {
                                                 TermuxRunner.openTermuxDownloadPage(context)
                                             }
@@ -266,6 +299,7 @@ fun OnboardingDialog(
                                         onCopyOnly = {
                                             clipboardManager.setText(AnnotatedString(TermuxRunner.SETUP_COMMAND))
                                             Toast.makeText(context, appStrings.onboardingCommandCopied, Toast.LENGTH_SHORT).show()
+                                            isMonitoring = true
                                         },
                                         onNext = { currentStep = WizardStep.TERMUX_LAUNCH }
                                     )
@@ -773,7 +807,12 @@ private fun TermuxSetupStepContent(
     command: String,
     onCopyAndOpenTermux: () -> Unit,
     onCopyOnly: () -> Unit,
-    onNext: () -> Unit
+    onNext: () -> Unit,
+    isMonitoring: Boolean = false,
+    probeLevel: Int? = null,
+    onCheckNow: () -> Unit = {},
+    restUrl: String = "http://127.0.0.1:8000/api",
+    sessionToken: String = "hermes_mobile_local"
 ) {
     val appStrings = strings
 
@@ -794,6 +833,30 @@ private fun TermuxSetupStepContent(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
+
+        // G14 (docs/08 §2.7): полевые подсказки холодной установки
+        Surface(
+            shape = AppDimensions.ShapeCard,
+            color = AccentRose.copy(alpha = 0.08f),
+            border = BorderStroke(1.dp, AccentRose.copy(alpha = 0.3f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(10.dp)) {
+                Text(
+                    text = "Первый запуск и длительная установка",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AccentRose
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "• При первом открытии Termux дождитесь окончания начальной настройки (bootstrap) — не закрывайте его и не блокируйте экран\n• Во время работы команды (10–20 мин) держите экран включённым или выдайте Termux «No battery restrictions» в настройках системы — иначе установка прерывается\n• Если шаг отмечен [!], а сеть в порядке — просто запустите команду повторно: шаги идемпотентны",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 14.sp
+                )
+            }
+        }
     }
 
     // 3 Наглядных карточки с действиями
@@ -899,19 +962,77 @@ private fun TermuxSetupStepContent(
         )
     }
 
-    // Кнопка перехода к следующему шагу
-    OutlinedButton(
-        onClick = onNext,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(44.dp),
-        shape = AppDimensions.ShapeButton
-    ) {
-        Text(
-            text = "${appStrings.onboardingWizardDoneCommandBtn} →",
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold
-        )
+    // G14 (docs/08 §2.7): авто-мониторинг готовности — приложение само измеряет
+    // прогресс установки, пользователю не нужно ничего подключать и вручную «Next».
+    if (isMonitoring) {
+        val levelText = when (probeLevel) {
+            0 -> "Готово: демон Hermes отвечает"
+            1 -> "Демон стартует…"
+            2 -> "Установка идёт: ждём поднятия демона (команда должна доработать в Termux)"
+            3 -> "Termux не найден — вернитесь к шагу 1"
+            else -> "Ожидаем установку… (проверка каждые 5 сек)"
+        }
+        val done = probeLevel == 0
+        Surface(
+            shape = AppDimensions.ShapeCard,
+            color = if (done) AccentEmerald.copy(alpha = 0.1f) else PrimaryIndigo.copy(alpha = 0.08f),
+            border = BorderStroke(1.dp, if (done) AccentEmerald.copy(alpha = 0.4f) else PrimaryIndigo.copy(alpha = 0.25f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (!done) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = PrimaryIndigo
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                } else {
+                    Icon(Icons.Default.Check, contentDescription = null, tint = AccentEmerald, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
+                }
+                Text(
+                    text = levelText,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onCheckNow, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                    Text("Проверить", fontSize = 11.sp)
+                }
+            }
+        }
+        if (done) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = onNext,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp),
+                shape = AppDimensions.ShapeButton,
+                colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald)
+            ) {
+                Text("Готово — подключиться →", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        }
+    } else {
+        // Кнопка ручного перехода (мониторинг не активен)
+        OutlinedButton(
+            onClick = onNext,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp),
+            shape = AppDimensions.ShapeButton
+        ) {
+            Text(
+                text = "${appStrings.onboardingWizardDoneCommandBtn} →",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
     }
 }
 
