@@ -52,12 +52,17 @@ fun SettingsDialog(
     onExportBackup: () -> Unit = {},
     onRestoreBackup: (String) -> Unit = {},
     onCheckForUpdates: () -> Unit = {},
+    isDebugKeysExportEnabled: Boolean = false,
+    onToggleDebugKeysExport: (Boolean) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     var urlText by remember { mutableStateOf(currentServerUrl) }
     var demoEnabled by remember { mutableStateOf(isDemoMode) }
     var isAdvancedExpanded by remember { mutableStateOf(false) }
     val appStrings = strings
+
+    // G1 (docs/07 §3): флаг экспорта ключей — только debug-сборка, по умолчанию off
+    var debugKeysExportEnabled by remember { mutableStateOf(isDebugKeysExportEnabled) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -538,6 +543,40 @@ fun SettingsDialog(
                                         onToggleDemoMode(it)
                                     }
                                 )
+                            }
+
+                            // G1 (docs/07 §3): экспорт ключей — только debug-сборка
+                            if (com.hermes.mobile.BuildConfig.DEBUG) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(AppDimensions.ShapeField)
+                                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f))
+                                        .padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = strings.debugKeysExportSwitch,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 13.sp,
+                                            color = AccentRose
+                                        )
+                                        Text(
+                                            text = strings.debugKeysExportDesc,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Switch(
+                                        checked = debugKeysExportEnabled,
+                                        onCheckedChange = {
+                                            debugKeysExportEnabled = it
+                                            onToggleDebugKeysExport(it)
+                                        }
+                                    )
+                                }
                             }
 
                             if (!demoEnabled) {

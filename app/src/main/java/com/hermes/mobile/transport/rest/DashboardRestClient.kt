@@ -50,10 +50,13 @@ class DashboardRestClient(
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
+
+    // Демон — Python-сервер на телефоне; под нагрузкой отвечает десятками секунд,
+    // поэтому таймауты REST-клиента щедрые (прежние 4-8 сек рвали синхронизацию).
     private val client = OkHttpClient.Builder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(6, TimeUnit.SECONDS)
-        .callTimeout(8, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .callTimeout(90, TimeUnit.SECONDS)
         .build()
 
     private val probeClient = OkHttpClient.Builder()
@@ -62,6 +65,22 @@ class DashboardRestClient(
         .callTimeout(6, TimeUnit.SECONDS)
         .build()
 
+    /**
+     * Демон отдаёт SPA HTML (код 200) на несуществующие маршруты — из-за этого
+     * вызовы к эндпоинтам, которых нет в hermes-agent, "успешно" проваливались.
+     * JSON-валидность ответа = обязательный критерий успеха.
+     */
+    private fun isRealJson(body: String?): Boolean {
+        if (body.isNullOrBlank()) return false
+        val t = body.trimStart()
+        return t.startsWith("{") || t.startsWith("[")
+    }
+
+    /**
+     * POST /api/env/reveal — читает plaintext-значение ключа из daemon env.
+     * D4 (docs/08 §2.3): null при невалидном теле (SPA HTML) или ошибке сети;
+     * пустая структура ("нет значения") — тоже null, т.к. значения нет.
+     */
     suspend fun revealEnvVar(keyName: String): String? = withContext(Dispatchers.IO) {
         try {
             val jsonPayload = """{"key": "$keyName"}"""
@@ -70,6 +89,7 @@ class DashboardRestClient(
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful && response.body != null) {
                     val bodyString = response.body!!.string()
+                    if (!isRealJson(bodyString)) return@withContext null
                     val elem = json.parseToJsonElement(bodyString)
                     if (elem is JsonObject) {
                         elem["value"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
@@ -81,12 +101,118 @@ class DashboardRestClient(
         }
     }
 
-    suspend fun getEnvKeys(): Map<String, Boolean> = withContext(Dispatchers.IO) {
+    /**
+     * Запись переменной окружения в daemon env через PUT /api/env
+     * (persist в ~/.hermes/.env). Ответ обязан быть JSON — иначе это SPA-fallback.
+     */
+    suspend fun putEnvVar(key: String, value: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val payload = buildString {
+                append("{\"key\": ")
+                append(jsonPrimitiveString(key))
+                append(", \"value\": ")
+                append(jsonPrimitiveString(value))
+                append('}')
+            }
+            val body = payload.toRequestBody("application/json".toMediaType())
+            val request = newRequestBuilder("/env").put(body).build()
+            client.newCall(request).execute().use { response ->
+                response.isSuccessful && isRealJson(response.body?.string())
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Регистрация/обновление кастомного провайдера в config.yaml демона через
+     * PUT /api/config: providers.<name> = {base_url, key_env, model, api_mode?}.
+     * Возвращает env-имя ключа, под которое демон будет искать API-ключ.
+     */
+    suspend fun registerProviderInConfig(
+        name: String,
+        baseUrl: String,
+        model: String,
+        keyEnv: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val payload = buildString {
+                append("{\"config\": {\"providers\": {")
+                append(jsonPrimitiveString(name))
+                append(": {\"base_url\": ")
+                append(jsonPrimitiveString(baseUrl))
+                append(", \"api_key\": \"\", \"key_env\": ")
+                append(jsonPrimitiveString(keyEnv))
+                append(", \"model\": ")
+                append(jsonPrimitiveString(model))
+                append("}}}}")
+            }
+            val body = payload.toRequestBody("application/json".toMediaType())
+            val request = newRequestBuilder("/config").put(body).build()
+            client.newCall(request).execute().use { response ->
+                response.isSuccessful && isRealJson(response.body?.string())
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Текущий набор кастомных провайдеров из config демона (GET /api/config).
+     * null = эндпоинт недоступен (демон не отвечает или вернул SPA HTML).
+     */
+    suspend fun getConfigProviders(): Map<String, Pair<String, String>>? = withContext(Dispatchers.IO) {
+        try {
+            val request = newRequestBuilder("/config").get().build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful && response.body != null) {
+                    val bodyString = response.body!!.string()
+                    if (!isRealJson(bodyString)) return@withContext null
+                    val root = json.parseToJsonElement(bodyString) as? JsonObject ?: return@withContext null
+                    val providers = root["providers"] as? JsonObject ?: return@withContext emptyMap<String, Pair<String, String>>()
+                    val result = mutableMapOf<String, Pair<String, String>>()
+                    for ((name, v) in providers) {
+                        val obj = v as? JsonObject ?: continue
+                        val baseUrl = obj["base_url"]?.jsonPrimitive?.contentOrNull ?: ""
+                        val model = obj["model"]?.jsonPrimitive?.contentOrNull ?: ""
+                        result[name] = baseUrl to model
+                    }
+                    result
+                } else null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun jsonPrimitiveString(s: String): String {
+        val sb = StringBuilder("\"")
+        for (c in s) {
+            when (c) {
+                '"' -> sb.append("\\\"")
+                '\\' -> sb.append("\\\\")
+                '\n' -> sb.append("\\n")
+                '\r' -> sb.append("\\r")
+                '\t' -> sb.append("\\t")
+                else -> if (c < ' ') sb.append("\\u%04x".format(c.code)) else sb.append(c)
+            }
+        }
+        sb.append('"')
+        return sb.toString()
+    }
+
+    /**
+     * GET /api/env — карта {ключ: is_set}. D4 (docs/08 §2.3):
+     * null = эндпоинт/демон недоступен (SPA-fallback или ошибка сети);
+     * пустая карта = демона окружение пусто. Потребитель различает эти состояния.
+     */
+    suspend fun getEnvKeys(): Map<String, Boolean>? = withContext(Dispatchers.IO) {
         try {
             val request = newRequestBuilder("/env").get().build()
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful && response.body != null) {
                     val bodyString = response.body!!.string()
+                    if (!isRealJson(bodyString)) return@withContext null
                     val elem = json.parseToJsonElement(bodyString)
                     if (elem is JsonObject) {
                         return@withContext elem.mapValues { (_, v) ->
@@ -94,10 +220,14 @@ class DashboardRestClient(
                             isSet?.equals("true", ignoreCase = true) == true
                         }
                     }
+                    null
+                } else {
+                    null
                 }
             }
-        } catch (_: Exception) {}
-        emptyMap()
+        } catch (_: Exception) {
+            null
+        }
     }
 
     suspend fun getHealth(): Boolean = withContext(Dispatchers.IO) {
@@ -147,6 +277,40 @@ class DashboardRestClient(
             }
         } catch (e: Exception) {
             emptyList()
+        }
+    }
+
+    /**
+     * G4 (03 §D9б): история сообщений серверной сессии для восстановления
+     * после reconnect. D4 (08 §2.3): null = эндпоинт недоступен (SPA-fallback/ошибка).
+     */
+    suspend fun getServerSessionMessages(sessionId: String): List<SessionMessageDto>? = withContext(Dispatchers.IO) {
+        try {
+            val request = newRequestBuilder("/sessions/$sessionId/messages").get().build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful && response.body != null) {
+                    val bodyString = response.body!!.string()
+                    if (!isRealJson(bodyString)) return@withContext null
+                    val elem = json.parseToJsonElement(bodyString)
+                    when (elem) {
+                        is kotlinx.serialization.json.JsonArray -> elem.mapNotNull { item ->
+                            runCatching { json.decodeFromJsonElement(SessionMessageDto.serializer(), item) }.getOrNull()
+                        }
+                        is kotlinx.serialization.json.JsonObject -> {
+                            val list = elem["messages"] as? kotlinx.serialization.json.JsonArray
+                                ?: elem["items"] as? kotlinx.serialization.json.JsonArray
+                            list?.mapNotNull { item ->
+                                runCatching { json.decodeFromJsonElement(SessionMessageDto.serializer(), item) }.getOrNull()
+                            } ?: emptyList()
+                        }
+                        else -> null
+                    }
+                } else {
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 
@@ -292,7 +456,7 @@ class DashboardRestClient(
         try {
             val request = newRequestBuilder("/credentials/save").post(body).build()
             client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) return@withContext true
+                if (response.isSuccessful && isRealJson(response.body?.string())) return@withContext true
             }
         } catch (_: Exception) {}
 
@@ -300,7 +464,7 @@ class DashboardRestClient(
         try {
             val request = newRequestBuilder("/credentials/pool").post(body).build()
             client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) return@withContext true
+                if (response.isSuccessful && isRealJson(response.body?.string())) return@withContext true
             }
         } catch (_: Exception) {}
 
@@ -313,7 +477,7 @@ class DashboardRestClient(
             val request = newRequestBuilder("/model/info").get().build()
             client.newCall(request).execute().use { response ->
                 val latency = System.currentTimeMillis() - start
-                if (response.isSuccessful) {
+                if (response.isSuccessful && isRealJson(response.body?.string())) {
                     TestConnectionResponseDto(success = true, latencyMs = latency)
                 } else {
                     TestConnectionResponseDto(success = false, errorMessage = "Ошибка ответа сервера: код ${response.code}")
@@ -330,6 +494,7 @@ class DashboardRestClient(
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful && response.body != null) {
                     val bodyString = response.body!!.string()
+                    if (!isRealJson(bodyString)) return@withContext emptyList()
                     try {
                         return@withContext json.decodeFromString<CustomEndpointsResponseDto>(bodyString).endpoints
                     } catch (_: Exception) {

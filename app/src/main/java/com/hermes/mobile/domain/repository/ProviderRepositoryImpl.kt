@@ -174,6 +174,50 @@ class ProviderRepositoryImpl(
         return Result.success(Unit)
     }
 
+    /**
+     * Env-имена переменных для известных провайдеров (маппинг slug → имя ключа
+     * в daemon env, как их ожидает Hermes Agent в ~/.hermes/.env).
+     */
+    private fun envKeyCandidatesFor(providerId: String, providerName: String): List<String> {
+        val id = providerId.lowercase()
+        val name = providerName.lowercase()
+        val candidates = mutableListOf<String>()
+        when {
+            id.contains("zai") || name.contains("z.ai") || name.contains("zai") || name.contains("glm") ->
+                candidates.addAll(listOf("ZAI_API_KEY", "GLM_API_KEY", "ZAI_CODING_API_KEY"))
+            id.contains("openai") || name.contains("openai") ->
+                candidates.add("OPENAI_API_KEY")
+            id.contains("anthropic") || name.contains("anthropic") || name.contains("claude") ->
+                candidates.add("ANTHROPIC_API_KEY")
+            id.contains("openrouter") || name.contains("openrouter") ->
+                candidates.add("OPENROUTER_API_KEY")
+            id.contains("groq") || name.contains("groq") ->
+                candidates.add("GROQ_API_KEY")
+            id.contains("qwen") || name.contains("qwen") || name.contains("alibaba") || name.contains("dashscope") ->
+                candidates.addAll(listOf("DASHSCOPE_API_KEY", "QWEN_API_KEY"))
+            id.contains("deepseek") || name.contains("deepseek") ->
+                candidates.add("DEEPSEEK_API_KEY")
+            id.contains("google") || name.contains("gemini") ->
+                candidates.add("GEMINI_API_KEY")
+        }
+        val cleanName = providerName.uppercase().replace(Regex("[^A-Z0-9_]"), "_")
+        val cleanId = providerId.uppercase().replace(Regex("[^A-Z0-9_]"), "_")
+        candidates.add("HERMES_CUSTOM_${cleanName}_API_KEY")
+        candidates.add("${cleanName}_API_KEY")
+        candidates.add("HERMES_CUSTOM_${cleanId}_API_KEY")
+        candidates.add("${cleanId}_API_KEY")
+        return candidates.distinct()
+    }
+
+    /**
+     * Каноническое env-имя ключа для кастомного провайдера демона:
+     * провайдер в config.yaml ссылается на него через key_env.
+     */
+    private fun keyEnvNameFor(providerName: String): String {
+        val clean = providerName.uppercase().replace(Regex("[^A-Z0-9_]"), "_")
+        return "HERMES_CUSTOM_${clean}_API_KEY"
+    }
+
     override suspend fun saveApiKey(providerId: String, apiKey: String): Result<Unit> {
         val prov = _providers.value.firstOrNull { it.id == providerId || it.name == providerId }
         val provName = prov?.name ?: providerId.removePrefix("custom_")
@@ -183,11 +227,42 @@ class ProviderRepositoryImpl(
         keystoreManager.encryptAndSave(provName, apiKey)
         keystoreManager.encryptAndSave("custom_${provName.lowercase()}", apiKey)
 
-        // 2. Отправка ключа в Hermes WebSocket и REST
-        webSocketClient.saveApiKey(provName, apiKey)
-        restClient.saveCredential(provName, apiKey)
+        // 2. Регистрация провайдера в config.yaml демона (PUT /api/config) с key_env,
+        //    если провайдер кастомный и у него есть baseUrl
+        var configRegistered = false
+        val baseUrl = prov?.baseUrl?.takeIf { it.isNotBlank() }
+        if (baseUrl != null) {
+            val model = prov.currentModel ?: prov.availableModels.firstOrNull() ?: trimmedNameFallback(provName)
+            configRegistered = restClient.registerProviderInConfig(
+                name = provName,
+                baseUrl = baseUrl,
+                model = model,
+                keyEnv = keyEnvNameFor(provName)
+            )
+        }
 
-        // 3. Обновляем флаг hasApiKey для провайдера
+        // 3. Запись ключа в env демона через PUT /api/env (persist в ~/.hermes/.env)
+        var envApplied = false
+        val appliedEnvNames = mutableListOf<String>()
+        if (configRegistered) {
+            if (restClient.putEnvVar(keyEnvNameFor(provName), apiKey)) {
+                envApplied = true
+                appliedEnvNames.add(keyEnvNameFor(provName))
+            }
+        }
+        // Совместимость со стандартными провайдерами hermes (zai, openai, ...)
+        for (envName in envKeyCandidatesFor(providerId, provName)) {
+            if (restClient.putEnvVar(envName, apiKey)) {
+                envApplied = true
+                appliedEnvNames.add(envName)
+            }
+        }
+        android.util.Log.i("ProviderRepository", "saveApiKey: configRegistered=$configRegistered env applied=$envApplied names=$appliedEnvNames")
+
+        // 4. Отправка ключа в Hermes WebSocket (устаревший канал, best-effort)
+        webSocketClient.saveApiKey(provName, apiKey)
+
+        // 5. Обновляем флаг hasApiKey для провайдера
         _providers.value = _providers.value.map { p ->
             if (p.id == providerId || p.name == provName || p.id == provName) {
                 p.copy(hasApiKey = true, status = ProviderStatus.CONNECTED)
@@ -195,8 +270,15 @@ class ProviderRepositoryImpl(
                 p
             }
         }
-        return Result.success(Unit)
+
+        return if (envApplied || configRegistered) {
+            Result.success(Unit)
+        } else {
+            Result.failure(Exception("Не удалось сохранить ключ: демон недоступен или отклонил PUT /api/config и PUT /api/env"))
+        }
     }
+
+    private fun trimmedNameFallback(provName: String): String = provName.take(16)
 
     override suspend fun addCustomProvider(
         name: String,
@@ -220,14 +302,22 @@ class ProviderRepositoryImpl(
             keystoreManager.encryptAndSave("custom_${trimmedName.lowercase()}", apiKey)
         }
 
-        // 2. Добавляем провайдера в конфиг Hermes через REST API
-        val restResult = restClient.addCustomEndpoint(
+        // 2. Регистрируем провайдера в config.yaml демона: PUT /api/config
+        //    (providers.<name> = {base_url, key_env, model}) + ключ через PUT /api/env.
+        //    Старый POST /api/providers/custom-endpoints в hermes-agent НЕ существует
+        //    (SPA-fallback возвращал HTML 200 и маскировал провал).
+        val keyEnv = keyEnvNameFor(trimmedName)
+        val defaultModel = effectiveModels.firstOrNull() ?: trimmedName
+        val configOk = restClient.registerProviderInConfig(
             name = trimmedName,
-            apiMode = apiMode.id,
             baseUrl = baseUrl.trim(),
-            apiKey = apiKey,
-            models = effectiveModels
+            model = defaultModel,
+            keyEnv = keyEnv
         )
+        var keyOk = false
+        if (configOk && apiKey.isNotBlank()) {
+            keyOk = restClient.putEnvVar(keyEnv, apiKey)
+        }
 
         val newProvider = ProviderConfig(
             id = customId,
@@ -242,11 +332,18 @@ class ProviderRepositoryImpl(
         )
 
         // 3. Обновляем список локально
-        val updatedList = _providers.value.filterNot { 
+        val updatedList = _providers.value.filterNot {
             it.id == customId || it.name.equals(trimmedName, ignoreCase = true) || it.id == "custom_${trimmedName.lowercase()}"
         } + newProvider
         _providers.value = updatedList
 
+        if (!configOk) {
+            // Провайдер сохранён локально, но демон его не принял — сообщаем пользователю
+            return Result.failure(Exception(
+                "Провайдер сохранён в приложении, но не добавлен в агент: демон недоступен или отклонил конфиг. " +
+                        "При подключении агента провайдер будет синхронизирован автоматически."
+            ))
+        }
         return Result.success(newProvider)
     }
 
@@ -365,6 +462,133 @@ class ProviderRepositoryImpl(
         )
     }
 
+    /**
+     * Авто-синхронизация ключей и модели с демоном Hermes после подключения.
+     *
+     * 1. Регистрирует кастомных провайдеров из локального списка в config.yaml
+     *    демона (PUT /api/config, providers.<name> с key_env), если их там нет.
+     * 2. Переносит ключи из Android Keystore в env демона (PUT /api/env),
+     *    пропуская уже установленные.
+     * 3. Если model/info пуст — выбирает модель из настроек приложения.
+     *
+     * Вызывается при живом WS-соединении (throttle 30 сек в ChatViewModel).
+     */
+    override suspend fun syncCredentialsToDaemon(): Result<Unit> {
+        try {
+            // Живость демона проверяем model/info: /api/health на dashboard
+            // может отвечать SPA HTML, а model/info отдаёт JSON только у живого API.
+            val alive = restClient.getModelInfo()
+            if (alive == null) {
+                return Result.failure(Exception("Демон Hermes недоступен"))
+            }
+
+            var appliedCount = 0
+
+            // 0. Локальный список провайдеров (если пуст — подтянем из демона)
+            val providersToSync = _providers.value.ifEmpty {
+                try {
+                    restClient.getProviders().map { dto ->
+                        ProviderConfig(
+                            id = dto.id,
+                            name = dto.name,
+                            status = ProviderStatus.CONNECTED,
+                            currentModel = dto.currentModel,
+                            availableModels = dto.availableModels,
+                            hasApiKey = true,
+                            baseUrl = dto.baseUrl,
+                            apiMode = ProviderApiMode.fromId(dto.apiMode),
+                            isCustom = dto.isCustom
+                        )
+                    }
+                } catch (_: Exception) { emptyList() }
+            }
+
+            // 1. Кастомные провайдеры: (пере)регистрируем в config.yaml с каноническим
+            //    key_env — даже если провайдер уже есть: конфиг мог быть создан с другим
+            //    key_env, тогда демон ищет ключ не под тем именем. PUT идемпотентен.
+            val configProviders = restClient.getConfigProviders()
+            val customProviders = providersToSync.filter { it.isCustom && !it.baseUrl.isNullOrBlank() }
+            if (configProviders != null) {
+                for (prov in customProviders) {
+                    val model = prov.currentModel ?: prov.availableModels.firstOrNull() ?: prov.name
+                    if (restClient.registerProviderInConfig(
+                            name = prov.name,
+                            baseUrl = prov.baseUrl!!,
+                            model = model,
+                            keyEnv = keyEnvNameFor(prov.name)
+                        )
+                    ) {
+                        appliedCount++
+                        android.util.Log.i("ProviderRepository", "sync: (re)registered provider '${prov.name}' in daemon config")
+                    }
+                }
+            }
+
+            // 2. Перенос ключей из Keystore в env демона.
+            //    D4 (docs/08 §2.3): null = /api/env недоступен — пропускаем перенос
+            //    (как шаг 1 при null от getConfigProviders), а не считаем env пустым.
+            val envState = restClient.getEnvKeys() ?: return Result.success(Unit)
+            val seenValues = mutableSetOf<String>()
+            for (prov in providersToSync) {
+                val apiKey = keystoreManager.getDecrypted(prov.id)
+                    ?: keystoreManager.getDecrypted(prov.name)
+                    ?: keystoreManager.getDecrypted("custom_${prov.name.lowercase()}")
+                    ?: continue
+                if (apiKey.isBlank() || !seenValues.add(apiKey)) continue
+
+                // Для кастомных провайдеров — канонический key_env + все совместимые имена
+                val candidates = mutableListOf<String>()
+                if (prov.isCustom) candidates.add(keyEnvNameFor(prov.name))
+                candidates.addAll(envKeyCandidatesFor(prov.id, prov.name))
+                val alreadySet = candidates.any { envState[it] == true }
+                if (alreadySet) continue
+
+                for (envName in candidates.distinct()) {
+                    if (restClient.putEnvVar(envName, apiKey)) {
+                        appliedCount++
+                        android.util.Log.i("ProviderRepository", "sync: pushed key as $envName for '${prov.name}'")
+                        break
+                    }
+                }
+            }
+
+            // 3. Выбор модели при пустом model/info
+            //    (конфиг-PUT мог сбросить секцию model — восстанавливаем и в этом случае)
+            val modelInfo = restClient.getModelInfo() ?: return Result.success(Unit)
+            var modelApplied = false
+            if (modelInfo.model.isNullOrBlank() || modelInfo.provider.isNullOrBlank()) {
+                val activeModel = settingsManager.activeModel.value
+                val activeProvider = settingsManager.activeProvider.value
+                if (activeModel.isNotBlank()) {
+                    val res = restClient.setModel(activeModel, activeProvider)
+                    modelApplied = res.isSuccess
+                }
+                if (!modelApplied) {
+                    // Fallback: первая модель из опций демона
+                    val fallbackProv = try {
+                        restClient.getProviders().firstOrNull()
+                    } catch (_: Exception) { null }
+                    val fallbackModel = fallbackProv?.currentModel?.takeIf { it.isNotBlank() }
+                    if (fallbackModel != null) {
+                        val fallbackProvId = fallbackProv.id.removePrefix("custom_")
+                        val res = restClient.setModel(fallbackModel, fallbackProvId)
+                        modelApplied = res.isSuccess
+                        if (modelApplied) {
+                            settingsManager.setActiveModelAndProvider(fallbackModel, fallbackProvId, fallbackModel)
+                            webSocketClient.setActiveModel(fallbackModel, fallbackProvId)
+                        }
+                    }
+                }
+            }
+            android.util.Log.i("ProviderRepository", "syncCredentialsToDaemon: applied=$appliedCount modelApplied=$modelApplied")
+
+            return Result.success(Unit)
+        } catch (e: Exception) {
+            android.util.Log.w("ProviderRepository", "syncCredentialsToDaemon failed: ${e.message}")
+            return Result.failure(e)
+        }
+    }
+
     override suspend fun runDiagnostics(): DiagnosticsReport {
         if (settingsManager.isDemoMode.value) {
             val localGw = GatewayCheckResult(
@@ -425,7 +649,8 @@ class ProviderRepositoryImpl(
         val activeEnvKeys = if (isLocalHealthy) {
             try {
                 kotlinx.coroutines.withTimeoutOrNull(3000) {
-                    restClient.getEnvKeys().filterValues { it }.keys
+                    // D4: null = /api/env недоступен → в диагностике это "нет данных"
+                    restClient.getEnvKeys()?.filterValues { it }?.keys ?: emptySet()
                 } ?: emptySet()
             } catch (_: Exception) {
                 emptySet()

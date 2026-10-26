@@ -596,7 +596,13 @@ fun ChatScreen(
                 }
             },
             onSaveApiKey = { providerId, key ->
-                viewModel.saveApiKey(providerId, key)
+                viewModel.saveApiKey(providerId, key) { success, errorMsg ->
+                    if (!success && errorMsg != null) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar(errorMsg)
+                        }
+                    }
+                }
             },
             onGetApiKey = { providerId ->
                 viewModel.getApiKey(providerId)

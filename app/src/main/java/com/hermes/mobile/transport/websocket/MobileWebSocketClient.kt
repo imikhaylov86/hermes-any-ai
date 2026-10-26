@@ -30,7 +30,7 @@ sealed class WebSocketIncomingEvent {
 }
 
 class MobileWebSocketClient(
-    @Volatile private var endpointUrl: String = "ws://127.0.0.1:8000/api/ws?token=hermes_mobile_local",
+    @Volatile private var endpointUrl: String = "ws://127.0.0.1:8000/api/ws",
     private val deviceId: String = "android_device_local",
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 ) {
@@ -38,6 +38,33 @@ class MobileWebSocketClient(
 
     /** Вызывается, когда реальный сессионный токен получен из dashboard (fallback при 403). */
     var onSessionTokenRecovered: ((String) -> Unit)? = null
+
+    /**
+     * G4 (03 §D9г): вызывается composition root'ом при установлении новой серверной
+     * сессии — для персиста hermesSessionId в хранилище.
+     */
+    var onHermesSessionEstablished: ((String) -> Unit)? = null
+
+    /**
+     * G3 (docs/03 §D6): сессионный токен передаётся заголовком X-Hermes-Session-Token
+     * в WS upgrade, а не в URL. URL хранится без query-токена; query-fallback
+     * применяется только для loopback при отказе handshake.
+     */
+    @Volatile
+    private var sessionToken: String = "hermes_mobile_local"
+
+    /** loopback-эндпоинт (query-fallback допустим только для него, 03 §D6 п.3). */
+    private fun isLoopback(): Boolean {
+        val u = endpointUrl.lowercase()
+        return u.startsWith("ws://127.0.0.1") || u.startsWith("ws://localhost")
+    }
+
+    fun updateSessionToken(token: String) {
+        if (token.isNotBlank() && token != sessionToken) {
+            Log.i(tag, "Session token updated (header-auth)")
+            sessionToken = token
+        }
+    }
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -78,10 +105,35 @@ class MobileWebSocketClient(
     private var isGenerationStopped = false
     private val stoppedMessageIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
+    /**
+     * G4 (03 §D9а): дедупликация повторно доставленных chunk-событий.
+     * Ключ — messageId, значение — последний применённый sequence;
+     * sequence <= последнего → дубль (после повторной доставки при reconnect) → пропуск.
+     */
+    private val lastAppliedSequence = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    /** Проверка дубля для (messageId, sequence). true = уже доставлено. */
+    private fun isDuplicateChunk(messageId: String, sequence: Int): Boolean {
+        val last = lastAppliedSequence[messageId] ?: -1
+        return sequence <= last
+    }
+
+    private fun markSequenceApplied(messageId: String, sequence: Int) {
+        val last = lastAppliedSequence[messageId] ?: -1
+        if (sequence > last) {
+            lastAppliedSequence[messageId] = sequence
+        }
+    }
+
     fun updateEndpoint(newUrl: String) {
-        Log.i(tag, "Updating endpoint URL: $newUrl (was $endpointUrl)")
+        Log.i(tag, "Updating endpoint URL: ${cleanUrlForLog(newUrl)} (was ${cleanUrlForLog(endpointUrl)})")
         endpointUrl = newUrl
         reconnect(force = true)
+    }
+
+    /** Лог без токена (03 §Безопасность: no secrets in logs). */
+    private fun cleanUrlForLog(url: String): String {
+        return url.substringBefore("?token=").substringBefore("&token=")
     }
 
     fun connect() {
@@ -94,6 +146,27 @@ class MobileWebSocketClient(
             return
         }
         reconnect(force = false)
+    }
+
+    /**
+     * G7 (07 §G7): явный жизненный цикл клиента. Останавливает reconnect-цикл
+     * (isIntentionallyClosed — существующая механика корректного закрытия),
+     * закрывает WS и отменяет scope (collectors/launchers).
+     */
+    fun shutdown() {
+        Log.i(tag, "shutdown(): closing connection and cancelling scope")
+        synchronized(connectionLock) {
+            isIntentionallyClosed = true
+            connectionJob?.cancel()
+            connectionJob = null
+            try {
+                webSocket?.close(1000, "App shutdown")
+            } catch (e: Exception) {
+                Log.w(tag, "shutdown: close failed: ${e.message}")
+            }
+            webSocket = null
+        }
+        scope.cancel()
     }
 
     fun reconnect(force: Boolean = true) {
@@ -118,28 +191,45 @@ class MobileWebSocketClient(
 
     private suspend fun runConnectionLoop(forceImmediate: Boolean) {
         var backoffMs = if (forceImmediate) 500L else 1000L
+        // G3 (03 §D6): после отказа header-auth повторяем с query-токеном (loopback only),
+        // успешный fallback запоминаем до смены endpoint/токена.
+        var useQueryFallback = false
 
         while (!isIntentionallyClosed && currentCoroutineContext().isActive) {
             val disconnectSignal = CompletableDeferred<Unit>()
 
             try {
-                Log.i(tag, "Attempting connection to $endpointUrl")
+                val urlForAttempt = if (useQueryFallback) withQueryToken() else cleanEndpointUrl()
+                Log.i(tag, "Attempting connection (auth=${if (useQueryFallback) "query-fallback" else "header"}) to $urlForAttempt")
                 _connectionState.value = ConnectionState.CONNECTING
 
-                val request = Request.Builder()
-                    .url(endpointUrl)
+                val requestBuilder = Request.Builder()
+                    .url(urlForAttempt)
                     .header("Sec-WebSocket-Protocol", "hermes.jsonrpc.v1")
-                    .build()
+                if (!useQueryFallback) {
+                    // D6 п.1: токен в заголовке upgrade-запроса
+                    requestBuilder.header("X-Hermes-Session-Token", sessionToken)
+                }
+                val request = requestBuilder.build()
 
                 val listener = object : WebSocketListener() {
                     override fun onOpen(ws: WebSocket, response: Response) {
-                        Log.i(tag, "WebSocket onOpen successfully connected to $endpointUrl")
+                        Log.i(tag, "WebSocket onOpen (auth=${if (useQueryFallback) "query-fallback" else "header"}) to ${cleanUrlForLog(endpointUrl)}")
                         webSocket = ws
                         backoffMs = 1000L
                         _connectionState.value = ConnectionState.AUTHENTICATING
                         sendHello()
                         if (endpointUrl.contains("/api/ws")) {
-                            sendSessionCreate()
+                            val sid = hermesSessionId
+                            if (sid != null) {
+                                // G4 (03 §D9г): session.resume — серверная сессия уже
+                                // существует, пересоздание не требуется; READY сразу.
+                                Log.i(tag, "Resuming existing hermes session (no session.create)")
+                                _connectionState.value = ConnectionState.READY
+                                _incomingEvents.tryEmit(WebSocketIncomingEvent.Ready(sessionId = sid, activeModel = activeModel ?: ""))
+                            } else {
+                                sendSessionCreate()
+                            }
                         }
                     }
 
@@ -155,6 +245,12 @@ class MobileWebSocketClient(
                     override fun onClosed(ws: WebSocket, code: Int, reason: String) {
                         Log.i(tag, "WebSocket onClosed: code=$code, reason=$reason, intentional=$isIntentionallyClosed")
                         webSocket = null
+                        // G3 (03 §D6 п.2): закрытие до установления чата с 4401/403
+                        // = отказ auth-механики. Loopback → повтор с query-токеном.
+                        if ((code == 4401 || code == 403) && isLoopback() && !useQueryFallback) {
+                            Log.w(tag, "Auth rejected (header), falling back to query token for loopback")
+                            useQueryFallback = true
+                        }
                         if (!isIntentionallyClosed) {
                             _connectionState.value = ConnectionState.RECONNECTING
                         } else {
@@ -166,6 +262,12 @@ class MobileWebSocketClient(
                     override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
                         Log.w(tag, "WebSocket onFailure: ${t.message} (code=${response?.code})")
                         webSocket = null
+                        // G3 (03 §D6 п.2): HTTP-отказ upgrade 4401/403 при header-механике
+                        // и loopback → query-fallback. Remote wss:// — без fallback (ошибка auth).
+                        if ((response?.code == 403 || response?.code == 401) && isLoopback() && !useQueryFallback) {
+                            Log.w(tag, "Auth rejected (header, HTTP ${response.code}), falling back to query token for loopback")
+                            useQueryFallback = true
+                        }
                         // 403 = отклонён токен: сервер, вероятно, поднялся без env-патча
                         // (будущая версия hermes-agent). Пробуем забрать реальный токен из HTML
                         // SPA dashboard и подключиться с ним.
@@ -210,9 +312,24 @@ class MobileWebSocketClient(
     }
 
     /**
+     * G3 (03 §D6): endpoint без query-токена — токен передаётся заголовком.
+     */
+    private fun cleanEndpointUrl(): String {
+        return endpointUrl.substringBefore("?token=").substringBefore("&token=").trimEnd('&')
+    }
+
+    /** Query-fallback (loopback only): токен в URL как последний механизм совместимости. */
+    private fun withQueryToken(): String {
+        val base = cleanEndpointUrl()
+        val separator = if (base.contains("?")) "&" else "?"
+        return "$base${separator}token=$sessionToken"
+    }
+
+    /**
      * Fallback при 403: GET корня dashboard, извлечение сессионного токена
-     * из инжекта window.__HERMES_SESSION_TOKEN__="..." и обновление endpoint.
-     * Если токен не найден — обычный цикл переподключения продолжится.
+     * из инжекта window.__HERMES_SESSION_TOKEN__="..." и обновление токена
+     * (header-auth). URL при этом не содержит токен. Если токен не найден —
+     * обычный цикл переподключения продолжится.
      */
     private fun fetchSessionTokenFromDashboardAndRetry() {
         scope.launch {
@@ -229,10 +346,9 @@ class MobileWebSocketClient(
                         val html = response.body!!.string()
                         val m = Regex("window\\.__HERMES_SESSION_TOKEN__=\"([^\"]+)\"").find(html)
                         val token = m?.groupValues?.get(1)
-                        if (!token.isNullOrBlank() && !endpointUrl.contains("token=$token")) {
-                            Log.i(tag, "Fetched live session token from dashboard, updating endpoint")
-                            val base = endpointUrl.substringBefore("token=")
-                            endpointUrl = "$base token=$token".replace(" ", "")
+                        if (!token.isNullOrBlank() && token != sessionToken) {
+                            Log.i(tag, "Fetched live session token from dashboard, switching header token")
+                            updateSessionToken(token)
                             onSessionTokenRecovered?.invoke(token)
                         }
                     }
@@ -245,6 +361,20 @@ class MobileWebSocketClient(
             }
         }
     }
+
+    /**
+     * G4 (03 §D9г): восстановление серверной сессии при onOpen вместо
+     * безусловного session.create. Вызывается composition root'ом до connect().
+     */
+    fun restoreHermesSession(sessionId: String?) {
+        if (!sessionId.isNullOrBlank()) {
+            hermesSessionId = sessionId
+            Log.i(tag, "Restored hermes session for resume: ${sessionId.take(8)}…")
+        }
+    }
+
+    /** Текущий серверный идентификатор сессии (для персиста из репозитория). */
+    fun currentHermesSessionId(): String? = hermesSessionId
 
     private fun sendSessionCreate() {
         val createRpc = buildJsonObject {
@@ -281,6 +411,8 @@ class MobileWebSocketClient(
                         val newSid = resultObj?.get("session_id")?.jsonPrimitive?.contentOrNull
                         if (newSid != null) {
                             hermesSessionId = newSid
+                            // G4 (03 §D9г): персист для resume при будущих reconnect
+                            onHermesSessionEstablished?.invoke(newSid)
                             _connectionState.value = ConnectionState.READY
                             _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = newSid, activeModel = activeModel ?: ""))
                             val pending = pendingPromptText
@@ -331,12 +463,18 @@ class MobileWebSocketClient(
                                     ?: payload?.get("reasoning")?.jsonPrimitive?.contentOrNull
                                 if (!delta.isNullOrEmpty()) {
                                     val sessId = currentSessionId ?: "sess_main"
+                                    val seq = activeStreamSequence++
+                                    // G4 (03 §D9а): дедуп — повторная доставка после reconnect
+                                    if (isDuplicateChunk(msgId, seq)) {
+                                        return@launch
+                                    }
+                                    markSequenceApplied(msgId, seq)
                                     _incomingEvents.emit(
                                         WebSocketIncomingEvent.ThinkingChunk(
                                             messageId = msgId,
                                             sessionId = sessId,
                                             delta = delta,
-                                            sequence = activeStreamSequence++
+                                            sequence = seq
                                         )
                                     )
                                 }
@@ -350,12 +488,18 @@ class MobileWebSocketClient(
                                     ?: payload?.get("delta")?.jsonPrimitive?.contentOrNull
                                 if (!delta.isNullOrEmpty()) {
                                     val sessId = currentSessionId ?: "sess_main"
+                                    val seq = activeStreamSequence++
+                                    // G4 (03 §D9а): дедуп — повторная доставка после reconnect
+                                    if (isDuplicateChunk(msgId, seq)) {
+                                        return@launch
+                                    }
+                                    markSequenceApplied(msgId, seq)
                                     _incomingEvents.emit(
                                         WebSocketIncomingEvent.StreamChunk(
                                             messageId = msgId,
                                             sessionId = sessId,
                                             delta = delta,
-                                            sequence = activeStreamSequence++
+                                            sequence = seq
                                         )
                                     )
                                 }
@@ -389,11 +533,22 @@ class MobileWebSocketClient(
                                     ?: payload?.get("preview")?.jsonPrimitive?.contentOrNull
                                     ?: payload?.get("parameters")?.toString()
                                     ?: ""
+                                // G9 (07 §G9): уровень риска из payload, не хардкод.
+                                // Кандидаты полей — по образцу flat-ветки ToolApprovalRequestDto.
+                                val riskStr = payload?.get("risk_level")?.jsonPrimitive?.contentOrNull
+                                    ?: payload?.get("risk")?.jsonPrimitive?.contentOrNull
+                                    ?: payload?.get("level")?.jsonPrimitive?.contentOrNull
+                                val risk = when (riskStr?.lowercase()) {
+                                    "critical" -> RiskLevel.CRITICAL
+                                    "medium" -> RiskLevel.MEDIUM
+                                    "low" -> RiskLevel.LOW
+                                    else -> RiskLevel.LOW // отсутствие уровня ≠ критический риск
+                                }
                                 val domainReq = ToolApprovalRequest(
                                     requestId = reqId,
                                     sessionId = currentSessionId ?: "sess_main",
                                     toolName = toolName,
-                                    riskLevel = RiskLevel.CRITICAL,
+                                    riskLevel = risk,
                                     parametersPreview = preview,
                                     canAlwaysAllow = true,
                                     createdAtEpochMs = System.currentTimeMillis()
@@ -424,6 +579,11 @@ class MobileWebSocketClient(
                     "stream_chunk" -> {
                         val chunk = json.decodeFromString<StreamChunkDto>(text)
                         if (!isGenerationStopped && !stoppedMessageIds.contains(chunk.messageId)) {
+                            // G4 (03 §D9а): дедуп — повторная доставка после reconnect
+                            if (isDuplicateChunk(chunk.messageId, chunk.sequence)) {
+                                return@launch
+                            }
+                            markSequenceApplied(chunk.messageId, chunk.sequence)
                             _incomingEvents.emit(WebSocketIncomingEvent.StreamChunk(chunk.messageId, chunk.sessionId, chunk.delta, chunk.sequence))
                         }
                     }
@@ -520,6 +680,8 @@ class MobileWebSocketClient(
         currentMessageId = messageId
         currentSessionId = sessionId
         activeStreamSequence = 0
+        // G4 (03 §D9а): новый запрос — новый курсор дедупа для этого messageId
+        lastAppliedSequence.remove(messageId)
 
         if (endpointUrl.contains("/api/ws")) {
             val sid = hermesSessionId
@@ -542,6 +704,12 @@ class MobileWebSocketClient(
         }
     }
 
+    /**
+     * D8 (03 §D8): единственный верифицированный метод остановки —
+     * `session.interrupt` (см. contracts/hermes-agent-0.15.2/ws-rpc-verdicts.md:
+     * prompt.cancel/session.abort/chat.abort → -32601 unknown method).
+     * Flat DTO отправляется только для legacy-эндпоинтов (без /api/ws).
+     */
     fun stopGeneration(sessionId: String) {
         isGenerationStopped = true
         currentMessageId?.let { stoppedMessageIds.add(it) }
@@ -557,41 +725,11 @@ class MobileWebSocketClient(
                 })
             }
             webSocket?.send(rpcInterrupt.toString())
-
-            val rpcCancel = buildJsonObject {
-                put("jsonrpc", "2.0")
-                put("id", rpcCounter++)
-                put("method", "prompt.cancel")
-                put("params", buildJsonObject {
-                    put("session_id", sid)
-                })
-            }
-            webSocket?.send(rpcCancel.toString())
-
-            val rpcAbort = buildJsonObject {
-                put("jsonrpc", "2.0")
-                put("id", rpcCounter++)
-                put("method", "session.abort")
-                put("params", buildJsonObject {
-                    put("session_id", sid)
-                })
-            }
-            webSocket?.send(rpcAbort.toString())
-
-            val rpcChatAbort = buildJsonObject {
-                put("jsonrpc", "2.0")
-                put("id", rpcCounter++)
-                put("method", "chat.abort")
-                put("params", buildJsonObject {
-                    put("session_id", sid)
-                })
-            }
-            webSocket?.send(rpcChatAbort.toString())
+        } else {
+            val dto = StopGenerationDto(sessionId = sessionId)
+            val text = json.encodeToString(StopGenerationDto.serializer(), dto)
+            webSocket?.send(text)
         }
-
-        val dto = StopGenerationDto(sessionId = sessionId)
-        val text = json.encodeToString(StopGenerationDto.serializer(), dto)
-        webSocket?.send(text)
     }
 
     fun respondToApproval(requestId: String, sessionId: String, decision: ApprovalDecision) {

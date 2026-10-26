@@ -16,7 +16,6 @@ import androidx.core.content.ContextCompat
 object TermuxRunner {
 
     const val TERMUX_PACKAGE = "com.termux"
-    const val HERMES_AGENT_PACKAGE = "com.hermesagent.android"
     const val TERMUX_SERVICE = "com.termux.app.RunCommandService"
     const val ACTION_RUN_COMMAND = "com.termux.RUN_COMMAND"
     const val PERMISSION_RUN_COMMAND = "com.termux.permission.RUN_COMMAND"
@@ -67,19 +66,6 @@ object TermuxRunner {
         return try {
             if (context.packageManager.getLaunchIntentForPackage(TERMUX_PACKAGE) != null) return true
             context.packageManager.getPackageInfo(TERMUX_PACKAGE, 0)
-            true
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    /**
-     * Проверяет, установлено ли приложение Hermes Agent на устройстве.
-     */
-    fun isHermesAgentAppInstalled(context: Context): Boolean {
-        return try {
-            if (context.packageManager.getLaunchIntentForPackage(HERMES_AGENT_PACKAGE) != null) return true
-            context.packageManager.getPackageInfo(HERMES_AGENT_PACKAGE, 0)
             true
         } catch (_: Exception) {
             false
@@ -187,24 +173,6 @@ object TermuxRunner {
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
-        }
-    }
-
-    /**
-     * Открывает окно приложения Hermes Agent (если установлено).
-     */
-    fun openHermesAgentApp(context: Context): Boolean {
-        return try {
-            val intent = context.packageManager.getLaunchIntentForPackage(HERMES_AGENT_PACKAGE)
-            if (intent != null) {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
-                true
-            } else {
-                false
-            }
-        } catch (_: Exception) {
-            false
         }
     }
 

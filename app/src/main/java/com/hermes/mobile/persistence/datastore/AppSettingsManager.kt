@@ -72,12 +72,15 @@ class AppSettingsManager(context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences("hermes_settings", Context.MODE_PRIVATE)
 
-    private val defaultServerUrl = "ws://127.0.0.1:8000/api/ws?token=hermes_mobile_local"
+    private val defaultServerUrl = "ws://127.0.0.1:8000/api/ws"
 
     private val _serverUrl = MutableStateFlow(
         run {
             val saved = prefs.getString(KEY_SERVER_URL, defaultServerUrl) ?: defaultServerUrl
-            if (saved == "ws://127.0.0.1:8000/ws") defaultServerUrl else saved
+            // G3 (03 §D6): старый сохранённый URL мог содержать query-токен — нормализуем
+            // loopback-эндпоинт к чистому виду (токен теперь в заголовке).
+            val normalized = saved.substringBefore("?token=").substringBefore("&token=")
+            if (normalized == "ws://127.0.0.1:8000/ws" || normalized == "ws://127.0.0.1:8000/api/ws") defaultServerUrl else saved
         }
     )
     val serverUrl: StateFlow<String> = _serverUrl.asStateFlow()
@@ -122,6 +125,21 @@ class AppSettingsManager(context: Context) {
     )
     val appLanguage: StateFlow<String> = _appLanguage.asStateFlow()
 
+    /**
+     * Флаг разработчика: экспорт расшифрованных ключей в keys_plain.json при старте.
+     * По умолчанию ВЫКЛЮЧЕН. Нужен только для переноса ключей между сборками
+     * (debug → release миграция через importKeystoreMigration).
+     */
+    private val _isDebugKeysExportEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_DEBUG_KEYS_EXPORT, false)
+    )
+    val isDebugKeysExportEnabled: StateFlow<Boolean> = _isDebugKeysExportEnabled.asStateFlow()
+
+    fun setDebugKeysExportEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_DEBUG_KEYS_EXPORT, enabled).apply()
+        _isDebugKeysExportEnabled.value = enabled
+    }
+
     fun setAppLanguage(lang: String) {
         val clean = if (lang.equals("en", ignoreCase = true)) "en" else "ru"
         prefs.edit().putString(KEY_APP_LANGUAGE, clean).apply()
@@ -157,6 +175,22 @@ class AppSettingsManager(context: Context) {
     val lastActiveSessionId: StateFlow<String?> = _lastActiveSessionId.asStateFlow()
 
     fun getLastActiveSessionId(): String? = _lastActiveSessionId.value
+
+    /**
+     * G4 (03 §D9г): серверный (hermes) идентификатор активной сессии.
+     * Персистится, чтобы при reconnect не пересоздавать сессию демона.
+     */
+    private val _hermesSessionId = MutableStateFlow(prefs.getString(KEY_HERMES_SESSION_ID, null))
+    val hermesSessionId: StateFlow<String?> = _hermesSessionId.asStateFlow()
+
+    fun setHermesSessionId(sessionId: String?) {
+        if (sessionId.isNullOrBlank()) {
+            prefs.edit().remove(KEY_HERMES_SESSION_ID).apply()
+        } else {
+            prefs.edit().putString(KEY_HERMES_SESSION_ID, sessionId).apply()
+        }
+        _hermesSessionId.value = sessionId
+    }
 
     fun setLastActiveSessionId(sessionId: String?) {
         val editor = prefs.edit()
@@ -215,6 +249,8 @@ class AppSettingsManager(context: Context) {
     }
 
     fun getSessionToken(): String {
+        // G3 (03 §D6): токен берётся из query только для ручных remote-URL (QR-паринг);
+        // loopback по умолчанию использует фиксированный hermes_mobile_local в заголовке.
         val wsUrl = _serverUrl.value
         if (wsUrl.contains("token=")) {
             return wsUrl.substringAfter("token=").substringBefore("&")
@@ -299,11 +335,13 @@ class AppSettingsManager(context: Context) {
         private const val KEY_ACTIVE_PROVIDER = "key_active_provider"
         private const val KEY_ACTIVE_PROVIDER_NAME = "key_active_provider_name"
         private const val KEY_LAST_ACTIVE_SESSION = "key_last_active_session"
+        private const val KEY_HERMES_SESSION_ID = "key_hermes_session_id"
         private const val KEY_FIRST_LAUNCH = "key_first_launch"
         private const val KEY_SLASH_COMMANDS = "key_slash_commands"
         private const val KEY_FALLBACK_MODEL = "key_fallback_model"
         private const val KEY_FALLBACK_PROVIDER = "key_fallback_provider"
         private const val KEY_FALLBACK_PROVIDER_NAME = "key_fallback_provider_name"
         private const val KEY_APP_LANGUAGE = "key_app_language"
+        private const val KEY_DEBUG_KEYS_EXPORT = "key_debug_keys_export"
     }
 }

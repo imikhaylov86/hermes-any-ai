@@ -107,13 +107,15 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun getDatabase(context: android.content.Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
+                // G2 (docs/07 §3): деструктивный fallback запрещён — при изменении
+                // версии схемы обязателен Migration(N, N+1), иначе Room упадёт с
+                // IllegalStateException вместо молчаливого стирания истории чатов.
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "hermes_mobile_database"
                 )
                     .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
-                    .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
                 instance

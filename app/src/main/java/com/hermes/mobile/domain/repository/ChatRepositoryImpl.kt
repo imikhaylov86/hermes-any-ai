@@ -6,6 +6,7 @@ import com.hermes.mobile.persistence.database.MessageEntity
 import com.hermes.mobile.persistence.database.SessionDao
 import com.hermes.mobile.persistence.datastore.AppSettingsManager
 import com.hermes.mobile.transport.dto.AttachmentDto
+import com.hermes.mobile.transport.rest.DashboardRestClient
 import com.hermes.mobile.transport.websocket.MobileWebSocketClient
 import com.hermes.mobile.transport.websocket.WebSocketIncomingEvent
 import kotlinx.coroutines.*
@@ -19,6 +20,7 @@ class ChatRepositoryImpl(
     private val sessionDao: SessionDao? = null,
     private val webSocketClient: MobileWebSocketClient,
     private val settingsManager: AppSettingsManager,
+    private val restClient: DashboardRestClient? = null,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 ) : ChatRepository {
 
@@ -31,13 +33,96 @@ class ChatRepositoryImpl(
     private val stoppedMessageIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private var demoStreamingJob: kotlinx.coroutines.Job? = null
 
+    /**
+     * G4 (03 §D9б): восстановление истории выполняется только при READY,
+     * наступившем ПОСЛЕ разрыва (RECONNECTING/FAILED), а не при чистом старте
+     * приложения — Room уже содержит актуальную историю.
+     */
+    private var hasConnectedOnce = false
+    private var recoveryInFlight = false
+
     init {
         observeIncomingEvents()
+        observeConnectionForRecovery()
         scope.launch {
             messageDao.completeAllStreamingMessages()
         }
         if (!settingsManager.isDemoMode.value) {
             webSocketClient.connect()
+        }
+    }
+
+    /**
+     * G4 (03 §D9б): при повторном установлении связи — восстановление истории
+     * активной серверной сессии через REST и сверка с Room.
+     */
+    private fun observeConnectionForRecovery() {
+        scope.launch {
+            var previousState: ConnectionState? = null
+            webSocketClient.connectionState.collect { state ->
+                val wasDisconnected = previousState == ConnectionState.RECONNECTING ||
+                        previousState == ConnectionState.FAILED
+                previousState = state
+                if (state == ConnectionState.READY) {
+                    if (hasConnectedOnce && wasDisconnected) {
+                        recoverHistoryFromDaemon()
+                    }
+                    hasConnectedOnce = true
+                }
+            }
+        }
+    }
+
+    /**
+     * G4 (03 §D9б): сверка Room ↔ REST-истории серверной сессии.
+     * Room — source of truth для UI; отсутствующие серверные ответы добавляются,
+     * локальные unsent без серверного подтверждения — повторная отправка.
+     */
+    private suspend fun recoverHistoryFromDaemon() {
+        val rest = restClient ?: return
+        val hermesSid = webSocketClient.currentHermesSessionId()
+        val localSessionId = settingsManager.getLastActiveSessionId() ?: return
+        if (hermesSid.isNullOrBlank() || recoveryInFlight) return
+        recoveryInFlight = true
+        try {
+            val serverMessages = rest.getServerSessionMessages(hermesSid)
+            if (serverMessages != null && serverMessages.isNotEmpty()) {
+                val existingIds = messageDao.getMessagesListForSession(localSessionId)
+                    .map { it.id }.toSet()
+                var added = 0
+                for (msg in serverMessages) {
+                    val role = msg.role?.lowercase() ?: continue
+                    if (role !in setOf("assistant", "user", "system")) continue
+                    // Серверные assistant-ответы: идентификатор — серверный id
+                    val serverId = msg.id
+                    if (serverId != null && existingIds.contains(serverId)) continue
+                    val content = msg.content ?: msg.text ?: continue
+                    if (content.isBlank()) continue
+                    val isAssistant = role == "assistant"
+                    if (!isAssistant) continue // локальные user-копии уже в Room (02 §D4)
+                    val entity = MessageEntity(
+                        id = serverId ?: "srv_${msg.createdAt}_${added}",
+                        sessionId = localSessionId,
+                        role = MessageRole.ASSISTANT.name,
+                        content = content,
+                        thinkingContent = msg.thinking?.ifBlank { null },
+                        timestampEpochMs = if (msg.createdAt > 0) msg.createdAt else System.currentTimeMillis(),
+                        status = MessageStatus.COMPLETE.name
+                    )
+                    messageDao.insertMessage(entity)
+                    added++
+                }
+                if (added > 0) {
+                    android.util.Log.i("ChatRepository", "G4 recovery: restored $added server messages to session $localSessionId")
+                }
+            }
+            // (в) повторная отправка unsent: локальные сообщения со статусом ERROR
+            // от предыдущего разрыва — пользователь повторит вручную (retryTurn),
+            // автоповтор исключён по 02 §Состояния п.1 (не создавать дубли)
+        } catch (e: Exception) {
+            android.util.Log.w("ChatRepository", "G4 recovery failed: ${e.message}")
+        } finally {
+            recoveryInFlight = false
         }
     }
 
@@ -186,18 +271,44 @@ class ChatRepositoryImpl(
         }
     }
 
-    override fun getConnectionStateFlow(): StateFlow<ConnectionState> {
-        val state = MutableStateFlow(
-            if (settingsManager.isDemoMode.value) ConnectionState.READY else webSocketClient.connectionState.value
+    /**
+     * G6 (07 §G6): единый StateFlow состояния соединения через stateIn —
+     * один коллектор, авто-отписка при отсутствии подписчиков (5с grace),
+     * промежуточные состояния не теряются (в отличие от локального
+     * MutableStateFlow с подпиской без отписки на каждый вызов).
+     */
+    private val connectionStateFlow: StateFlow<ConnectionState> =
+        combine(settingsManager.isDemoMode, webSocketClient.connectionState) { isDemo, wsState ->
+            if (isDemo) ConnectionState.READY else wsState
+        }.stateIn(
+            scope = scope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = if (settingsManager.isDemoMode.value) ConnectionState.READY
+            else webSocketClient.connectionState.value
         )
-        scope.launch {
-            combine(settingsManager.isDemoMode, webSocketClient.connectionState) { isDemo, wsState ->
-                if (isDemo) ConnectionState.READY else wsState
-            }.collect {
-                state.value = it
+
+    override fun getConnectionStateFlow(): StateFlow<ConnectionState> = connectionStateFlow
+
+    /**
+     * G7 (07 §G7): явный жизненный цикл репозитория. Финализирует
+     * STREAMING-сообщения (чтобы UI не застыл на «стриминге» после остановки)
+     * и отменяет scope — все коллекторы (events, connection, stateIn) снимаются.
+     */
+    override fun shutdown() {
+        if (scope.isActive) {
+            scope.launch {
+                try {
+                    messageDao.completeAllStreamingMessages()
+                } catch (e: Exception) {
+                    android.util.Log.w("ChatRepository", "shutdown: finalize streaming failed: ${e.message}")
+                }
+            }
+            // Даём финализации выполниться до отмены scope
+            scope.launch {
+                kotlinx.coroutines.delay(300)
+                scope.cancel()
             }
         }
-        return state.asStateFlow()
     }
 
     override fun getPendingApprovalsFlow(): Flow<List<ToolApprovalRequest>> {

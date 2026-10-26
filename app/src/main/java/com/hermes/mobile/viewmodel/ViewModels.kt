@@ -62,6 +62,36 @@ class ChatViewModel(
     init {
         refreshProviders()
         initActiveSession()
+        observeConnectionForSync()
+    }
+
+    /**
+     * Авто-синхронизация ключей и модели с демоном при установлении связи.
+     * Запускается при любом активном состоянии WS (не только READY: демон
+     * может не отвечать на session.create, но REST API при этом жив).
+     * Сам метод проверяет health демона и завершается быстро, если демона нет.
+     * Защищено от повторов — не чаще раза в 30 секунд.
+     */
+    private var lastSyncAt = 0L
+    private fun observeConnectionForSync() {
+        viewModelScope.launch {
+            connectionState.collect { state ->
+                val alive = state != ConnectionState.DISCONNECTED &&
+                        state != ConnectionState.FAILED &&
+                        state != ConnectionState.RECONNECTING
+                if (alive && !settingsManager.isDemoMode.value) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastSyncAt > 30_000L) {
+                        lastSyncAt = now
+                        val res = providerRepository.syncCredentialsToDaemon()
+                        if (res.isSuccess) {
+                            android.util.Log.i("ChatViewModel", "Credentials auto-sync to daemon completed")
+                            refreshProviders()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun initActiveSession() {
@@ -276,6 +306,13 @@ class ChatViewModel(
         settingsManager.setAppLanguage(lang)
     }
 
+    /** G1 (docs/07 §3): флаг экспорта ключей разработчика, off по умолчанию. */
+    val isDebugKeysExportEnabled: StateFlow<Boolean> = settingsManager.isDebugKeysExportEnabled
+
+    fun setDebugKeysExportEnabled(enabled: Boolean) {
+        settingsManager.setDebugKeysExportEnabled(enabled)
+    }
+
     val isFirstLaunch: Boolean get() = settingsManager.isFirstLaunch()
 
     fun setFirstLaunchDone() {
@@ -326,9 +363,14 @@ class ChatViewModel(
         }
     }
 
-    fun saveApiKey(providerId: String, apiKey: String) {
+    fun saveApiKey(providerId: String, apiKey: String, onResult: ((Boolean, String?) -> Unit)? = null) {
         viewModelScope.launch {
-            providerRepository.saveApiKey(providerId, apiKey)
+            val res = providerRepository.saveApiKey(providerId, apiKey)
+            res.onSuccess {
+                onResult?.invoke(true, null)
+            }.onFailure { err ->
+                onResult?.invoke(false, err.message)
+            }
         }
     }
 

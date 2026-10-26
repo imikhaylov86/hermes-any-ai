@@ -151,6 +151,10 @@ class MainActivity : ComponentActivity() {
                             showSettingsDialogFromDrawer = false
                             chatViewModel.checkForUpdates(isManual = true)
                         },
+                        isDebugKeysExportEnabled = chatViewModel.isDebugKeysExportEnabled.value,
+                        onToggleDebugKeysExport = { enabled ->
+                            chatViewModel.setDebugKeysExportEnabled(enabled)
+                        },
                         currentLanguage = appLanguage,
                         onSelectLanguage = { lang -> chatViewModel.setAppLanguage(lang) },
                         onDismiss = { showSettingsDialogFromDrawer = false }

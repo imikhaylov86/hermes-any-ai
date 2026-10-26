@@ -168,7 +168,8 @@ fun resolveImageModel(source: String): Any {
         }
     }
 
-    // 4. Hermes private storage or relative path (e.g. /data/user/0/com.hermesagent.android/... or hermes-media/...)
+    // 4. Hermes Termux-хранилище или относительный путь (e.g. /data/data/com.termux/files/home/... or hermes-media/...)
+    // Файлы демона недоступны напрямую из песочницы приложения — качаем через REST /files/download
     val restUrl = try { HermesApp.instance.settingsManager.getRestUrl() } catch (e: Exception) { "http://127.0.0.1:8000/api" }
     val token = try { HermesApp.instance.settingsManager.getSessionToken() } catch (e: Exception) { "hermes_mobile_local" }
     val encodedPath = URLEncoder.encode(cleanSource, "UTF-8")

@@ -119,6 +119,22 @@ data class SessionListResponseDto(
     val sessions: List<SessionItemDto> = emptyList()
 )
 
+/**
+ * G4 (03 §D9б): элемент истории сообщений серверной сессии
+ * (GET /api/sessions/{id}/messages). Формат восстановлен по полевым
+ * данным маршрута get_session_messages; неизвестные поля игнорируются.
+ */
+@Serializable
+data class SessionMessageDto(
+    val id: String? = null,
+    val role: String? = null,
+    val content: String? = null,
+    val text: String? = null,
+    @SerialName("thinking") val thinking: String? = null,
+    @SerialName("created_at") val createdAt: Long = 0L,
+    @SerialName("timestamp") val timestamp: Long = 0L
+)
+
 @Serializable
 data class HealthResponseDto(
     val ok: Boolean = false,

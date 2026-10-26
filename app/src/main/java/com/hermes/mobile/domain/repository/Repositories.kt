@@ -10,6 +10,9 @@ interface ChatRepository {
     fun getPendingApprovalsFlow(): Flow<List<ToolApprovalRequest>>
     fun getPendingClarifiesFlow(): Flow<List<ClarifyPrompt>>
 
+    /** G7 (07 §G7): освобождение ресурсов — отмена scope и финализация стримов. */
+    fun shutdown()
+
     suspend fun sendMessage(sessionId: String, content: String, attachments: List<Attachment> = emptyList())
     suspend fun stopGeneration(sessionId: String)
     suspend fun respondToApproval(requestId: String, decision: ApprovalDecision)
@@ -45,6 +48,7 @@ interface ProviderRepository {
     val error: StateFlow<String?>
 
     suspend fun refreshProviders(): Result<List<ProviderConfig>>
+    suspend fun syncCredentialsToDaemon(): Result<Unit>
     suspend fun setActiveModel(model: String, providerId: String? = null): Result<Unit>
     suspend fun saveApiKey(providerId: String, apiKey: String): Result<Unit>
     suspend fun testConnection(providerId: String): Result<Long>

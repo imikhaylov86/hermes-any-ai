@@ -109,6 +109,8 @@ interface AppStrings {
     val connectionParamsAccordion: String
     val demoModeSwitch: String
     val demoModeDesc: String
+    val debugKeysExportSwitch: String
+    val debugKeysExportDesc: String
     val agentWsUrlLabel: String
     val scanQrBtn: String
     val saveUrlBtn: String
@@ -316,8 +318,6 @@ interface AppStrings {
     val onboardingWizardStartChatBtn: String
     val onboardingWizardManualLaunchHint: String
     val onboardingWizardOpenTermuxManual: String
-    val onboardingHermesAppDetected: String
-    val onboardingOpenHermesAppBtn: String
     val onboardingPermissionsRequired: String
     val onboardingOpenSettingsBtn: String
     val onboardingRetryConnectionBtn: String
@@ -438,6 +438,8 @@ class RuAppStrings : AppStrings {
     override val connectionParamsAccordion = "Параметры соединения"
     override val demoModeSwitch = "Автономный Демо-режим"
     override val demoModeDesc = "Оффлайн эмуляция агента без Termux"
+    override val debugKeysExportSwitch = "Экспорт ключей (для разработки)"
+    override val debugKeysExportDesc = "Сохраняет ключи в файл для переноса между сборками. Применится при следующем запуске."
     override val agentWsUrlLabel = "WebSocket URL агента:"
     override val scanQrBtn = "Сканировать QR-код сервера"
     override val saveUrlBtn = "Сохранить адрес"
@@ -639,8 +641,6 @@ class RuAppStrings : AppStrings {
     override val onboardingWizardStartChatBtn = "Перейти к диалогу"
     override val onboardingWizardManualLaunchHint = "Если фоновый запуск заблокирован системой энергосбережения, откройте Termux и выполните команду: hermes run --mobile"
     override val onboardingWizardOpenTermuxManual = "Открыть Termux"
-    override val onboardingHermesAppDetected = "Обнаружено приложение Hermes Agent"
-    override val onboardingOpenHermesAppBtn = "Открыть Hermes Agent"
     override val onboardingPermissionsRequired = "Требуется разрешение Termux RUN_COMMAND или ручной запуск через терминал"
     override val onboardingOpenSettingsBtn = "Настройки приложения"
     override val onboardingRetryConnectionBtn = "Повторить подключение"
@@ -760,6 +760,8 @@ class EnAppStrings : AppStrings {
     override val connectionParamsAccordion = "Connection Parameters"
     override val demoModeSwitch = "Autonomous Demo Mode"
     override val demoModeDesc = "Offline agent emulation without Termux"
+    override val debugKeysExportSwitch = "Export keys (development)"
+    override val debugKeysExportDesc = "Saves keys to a file to transfer between builds. Applied on next app start."
     override val agentWsUrlLabel = "Agent WebSocket URL:"
     override val scanQrBtn = "Scan Server QR Code"
     override val saveUrlBtn = "Save Address"
@@ -961,8 +963,6 @@ class EnAppStrings : AppStrings {
     override val onboardingWizardStartChatBtn = "Start Chatting"
     override val onboardingWizardManualLaunchHint = "If background start is blocked by battery saver, open Termux and run: hermes run --mobile"
     override val onboardingWizardOpenTermuxManual = "Open Termux"
-    override val onboardingHermesAppDetected = "Hermes Agent app detected"
-    override val onboardingOpenHermesAppBtn = "Open Hermes Agent"
     override val onboardingPermissionsRequired = "Termux RUN_COMMAND permission or manual start required"
     override val onboardingOpenSettingsBtn = "App Settings"
     override val onboardingRetryConnectionBtn = "Retry Connection"

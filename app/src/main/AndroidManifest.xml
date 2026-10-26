@@ -18,7 +18,6 @@
 
     <queries>
         <package android:name="com.termux" />
-        <package android:name="com.hermesagent.android" />
     </queries>
 
     <application

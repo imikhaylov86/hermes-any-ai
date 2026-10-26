@@ -45,18 +45,25 @@ class HermesApp : Application() {
         instance = this
 
         checkAndPerformDataMigration()
-
         database = AppDatabase.getDatabase(this)
         keystoreManager = KeystoreManager(this)
         settingsManager = AppSettingsManager(this)
 
         if (packageName.endsWith(".debug")) {
-            exportDebugCredentials()
+            // G1 (docs/07 §3): экспорт ключей — только debug-сборка И явный флаг
+            // разработчика в настройках. По умолчанию выключен. В релизе экспорта нет.
+            if (settingsManager.isDebugKeysExportEnabled.value) {
+                exportDebugCredentials()
+            }
         } else {
             importKeystoreMigration()
         }
 
         webSocketClient = MobileWebSocketClient(endpointUrl = settingsManager.serverUrl.value)
+        // G3 (03 §D6): токен в заголовке WS upgrade, не в URL
+        webSocketClient.updateSessionToken(settingsManager.getSessionToken())
+        // G4 (03 §D9г): восстановление серверной сессии для resume при onOpen
+        webSocketClient.restoreHermesSession(settingsManager.hermesSessionId.value)
         webSocketClient.setActiveModel(settingsManager.activeModel.value, settingsManager.activeProvider.value)
 
         restClient = DashboardRestClient(
@@ -70,11 +77,17 @@ class HermesApp : Application() {
             restClient.updateSessionToken(token)
         }
 
+        // G4 (03 §D9г): персист серверного идентификатора сессии для resume
+        webSocketClient.onHermesSessionEstablished = { sessionId ->
+            settingsManager.setHermesSessionId(sessionId)
+        }
+
         chatRepository = ChatRepositoryImpl(
             messageDao = database.messageDao(),
             sessionDao = database.sessionDao(),
             webSocketClient = webSocketClient,
-            settingsManager = settingsManager
+            settingsManager = settingsManager,
+            restClient = restClient
         )
 
         sessionRepository = SessionRepositoryImpl(
@@ -95,6 +108,11 @@ class HermesApp : Application() {
         updateManager = com.hermes.mobile.domain.update.UpdateManager(this)
     }
 
+    /**
+     * G1 (docs/07 §3): экспорт расшифрованных ключей для переноса между сборками.
+     * Вызывается только в debug-сборке при включённом флаге разработчика
+     * (Настройки → Параметры соединения → «Экспорт ключей»).
+     */
     private fun exportDebugCredentials() {
         try {
             val prefs = getSharedPreferences("hermes_secure_storage", MODE_PRIVATE)
@@ -111,12 +129,31 @@ class HermesApp : Application() {
                 if (extDir != null) {
                     java.io.File(extDir, "keys_plain.json").writeText(json.toString())
                 }
-                java.io.File(filesDir, "keys_plain.json").writeText(json.toString())
                 android.util.Log.i("HermesApp", "Exported ${json.length()} credentials successfully")
             }
         } catch (e: Exception) {
             android.util.Log.e("HermesApp", "Export credentials error", e)
         }
+    }
+
+    /**
+     * G7 (07 §G7): завершение приложения — явное освобождение ресурсов
+     * transport/domain перед смертью процесса (onTerminate вызывается
+     * системой только при полном завершении App-процесса).
+     */
+    override fun onTerminate() {
+        android.util.Log.i("HermesApp", "onTerminate: shutting down repositories and WS client")
+        try {
+            chatRepository.shutdown()
+        } catch (e: Exception) {
+            android.util.Log.w("HermesApp", "chatRepository.shutdown failed: ${e.message}")
+        }
+        try {
+            webSocketClient.shutdown()
+        } catch (e: Exception) {
+            android.util.Log.w("HermesApp", "webSocketClient.shutdown failed: ${e.message}")
+        }
+        super.onTerminate()
     }
 
     private fun importKeystoreMigration() {
