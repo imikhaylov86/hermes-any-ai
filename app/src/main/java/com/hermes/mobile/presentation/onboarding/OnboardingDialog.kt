@@ -257,6 +257,7 @@ fun OnboardingDialog(
                                     // G14: авто-мониторинг готовности среды (probe каждые 5с)
                                     var isMonitoring by remember { mutableStateOf(false) }
                                     var probeLevel by remember { mutableStateOf<Int?>(null) }
+                                    var daemonLogTail by remember { mutableStateOf<String?>(null) }
 
                                     fun runProbe() {
                                         TermuxRunner.probeHermesEnvironment(
@@ -273,6 +274,16 @@ fun OnboardingDialog(
                                             }
                                         ) { level ->
                                             probeLevel = level
+                                            // G14: застряли на уровне 1 — тянем хвост лога демона
+                                            // (единственный канал диагностики на изолированном устройстве)
+                                            if (level == 1 && daemonLogTail == null) {
+                                                Thread {
+                                                    val tail = TermuxRunner.readDaemonLogTail()
+                                                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                                        daemonLogTail = tail
+                                                    }
+                                                }.start()
+                                            }
                                         }
                                     }
 
@@ -287,6 +298,7 @@ fun OnboardingDialog(
                                         command = TermuxRunner.SETUP_COMMAND,
                                         isMonitoring = isMonitoring,
                                         probeLevel = probeLevel,
+                                        daemonLogTail = daemonLogTail,
                                         onCheckNow = { runProbe() },
                                         onRestartDaemon = {
                                             // G14: рестарт застрявшего демона — BG-команда
@@ -822,6 +834,7 @@ private fun TermuxSetupStepContent(
     onNext: () -> Unit,
     isMonitoring: Boolean = false,
     probeLevel: Int? = null,
+    daemonLogTail: String? = null,
     onCheckNow: () -> Unit = {},
     onRestartDaemon: () -> Unit = {},
     restUrl: String = "http://127.0.0.1:8000/api",
@@ -1022,6 +1035,33 @@ private fun TermuxSetupStepContent(
         // G14: демон застрял на уровне 1 — рестарт прямо из приложения,
         // без Termux и ручных команд (BG-команда: pkill + чистый старт + патч)
         if (stuck) {
+            // Хвост лога демона — диагноз на изолированном устройстве
+            daemonLogTail?.let { logTail ->
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    shape = AppDimensions.ShapeCard,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "Лог демона (~/hermes_mobile.log):",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = logTail,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            lineHeight = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(6.dp))
             Button(
                 onClick = onRestartDaemon,
