@@ -40,25 +40,27 @@ object TermuxRunner {
 
     /**
      * G15 (docs/08 §2.8): preseed с реальной первичной конфигурацией, собранной
-     * в онбординге (название, base URL, ключ, модель). Формирует config.yaml
-     * (DEFAULT_CONFIG-совместимый: model + providers.<name>) и .env (ключ),
-     * чтобы `hermes dashboard` стартовал неинтерактивно с рабочим провайдером.
-     * Вызывается ДО запуска демона в составе установки.
+     * в онбординге. Схема валидатора hermes (config.py validate_config_structure):
+     * model — СЕКЦИЯ (provider/default/base_url), не строка; провайдер —
+     * providers.<name> с base_url/key_env/model. .env хранит ключ (key_env).
+     * Демон стартует неинтерактивно с рабочим провайдером.
      */
     fun buildPreseedCommand(providerName: String, baseUrl: String, apiKey: String, model: String): String {
         val safeName = providerName.trim().lowercase().replace(Regex("[^a-z0-9_-]"), "_").ifBlank { "custom" }
         val envKey = "HERMES_CUSTOM_${safeName.uppercase()}_API_KEY"
         return "mkdir -p ~/.hermes; cat > ~/.hermes/config.yaml << 'CFGEOF'\n" +
-            "model: \"$model\"\n" +
+            "model:\n" +
+            "  provider: custom\n" +
+            "  default: \"$model\"\n" +
+            "  base_url: \"$baseUrl\"\n" +
             "providers:\n" +
             "  $safeName:\n" +
             "    base_url: \"$baseUrl\"\n" +
-            "    api_key: \"\"\n" +
             "    key_env: \"$envKey\"\n" +
             "    model: \"$model\"\n" +
             "CFGEOF\n" +
             "grep -q '$envKey=' ~/.hermes/.env 2>/dev/null || echo '$envKey=\"$apiKey\"' >> ~/.hermes/.env; " +
-            "echo '[preseed] config.yaml + .env written for provider $safeName'"
+            "echo '[preseed] config.yaml + .env written for provider $safeName (model section per validator)'"
     }
 
     /**
