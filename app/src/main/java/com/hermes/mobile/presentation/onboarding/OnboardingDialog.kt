@@ -288,6 +288,18 @@ fun OnboardingDialog(
                                         isMonitoring = isMonitoring,
                                         probeLevel = probeLevel,
                                         onCheckNow = { runProbe() },
+                                        onRestartDaemon = {
+                                            // G14: рестарт застрявшего демона — BG-команда
+                                            // (pkill + чистый старт + патч) через RunCommand
+                                            val ctx = context
+                                            Thread {
+                                                TermuxRunner.wakeUpTermuxForExecution(ctx)
+                                                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                                    TermuxRunner.startHermesDaemonInBackground(ctx)
+                                                }, 3000)
+                                            }.start()
+                                            Toast.makeText(context, "Перезапуск демона…", Toast.LENGTH_SHORT).show()
+                                        },
                                         onCopyAndOpenTermux = {
                                             clipboardManager.setText(AnnotatedString(TermuxRunner.SETUP_COMMAND))
                                             Toast.makeText(context, appStrings.onboardingCommandCopied, Toast.LENGTH_SHORT).show()
@@ -811,6 +823,7 @@ private fun TermuxSetupStepContent(
     isMonitoring: Boolean = false,
     probeLevel: Int? = null,
     onCheckNow: () -> Unit = {},
+    onRestartDaemon: () -> Unit = {},
     restUrl: String = "http://127.0.0.1:8000/api",
     sessionToken: String = "hermes_mobile_local"
 ) {
@@ -967,12 +980,13 @@ private fun TermuxSetupStepContent(
     if (isMonitoring) {
         val levelText = when (probeLevel) {
             0 -> "Готово: демон Hermes отвечает"
-            1 -> "Демон стартует…"
+            1 -> "Демон стартует: порт открыт, сервер поднимается (первый старт — до минуты). Долго висит — нажмите «Перезапустить демон»"
             2 -> "Установка идёт в Termux: [6/6] запустит демон, затем здесь появится «Готово». Если в Termux виден шаг [!] — устраните его и запустите команду заново (безопасно)"
             3 -> "Termux не найден — вернитесь к шагу 1"
             else -> "Ожидаем установку… (проверка каждые 5 сек)"
         }
         val done = probeLevel == 0
+        val stuck = probeLevel == 1
         Surface(
             shape = AppDimensions.ShapeCard,
             color = if (done) AccentEmerald.copy(alpha = 0.1f) else PrimaryIndigo.copy(alpha = 0.08f),
@@ -1003,6 +1017,23 @@ private fun TermuxSetupStepContent(
                 TextButton(onClick = onCheckNow, contentPadding = PaddingValues(horizontal = 6.dp)) {
                     Text("Проверить", fontSize = 11.sp)
                 }
+            }
+        }
+        // G14: демон застрял на уровне 1 — рестарт прямо из приложения,
+        // без Termux и ручных команд (BG-команда: pkill + чистый старт + патч)
+        if (stuck) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Button(
+                onClick = onRestartDaemon,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp),
+                shape = AppDimensions.ShapeButton,
+                colors = ButtonDefaults.buttonColors(containerColor = AccentRose)
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Перезапустить демон", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
             }
         }
         if (done) {
