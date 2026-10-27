@@ -3,7 +3,9 @@ package com.hermes.mobile.presentation.settings
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
@@ -221,6 +223,48 @@ fun TermuxStatusDialog(
                         Icon(Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(16.dp), tint = PrimaryIndigo)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(strings.termuxUpdateBtn, fontSize = 12.sp)
+                    }
+
+                    // G15: полный диагностический снимок (для изолированных устройств) —
+                    // один блок текста вместо десяти ручных команд; копируется в буфер
+                    var diagText by remember { mutableStateOf<String?>(null) }
+                    OutlinedButton(
+                        onClick = {
+                            Toast.makeText(context, "Сбор диагностики…", Toast.LENGTH_SHORT).show()
+                            Thread {
+                                val snapshot = TermuxRunner.collectDiagnosticsSnapshot()
+                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                    diagText = snapshot
+                                    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    cm.setPrimaryClip(android.content.ClipData.newPlainText("hermes_diag", snapshot))
+                                    Toast.makeText(context, "Диагностика скопирована в буфер обмена", Toast.LENGTH_LONG).show()
+                                }
+                            }.start()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = AppDimensions.ShapeButton
+                    ) {
+                        Icon(Icons.Default.BugReport, contentDescription = null, modifier = Modifier.size(16.dp), tint = AccentRose)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Диагностика (скопировать)", fontSize = 12.sp)
+                    }
+                    diagText?.let { snap ->
+                        Surface(
+                            shape = AppDimensions.ShapeCard,
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = snap,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 9.sp,
+                                lineHeight = 11.sp,
+                                modifier = Modifier
+                                    .padding(8.dp)
+                                    .verticalScroll(rememberScrollState())
+                                    .heightIn(max = 240.dp)
+                            )
+                        }
                     }
                 } else {
                     Button(

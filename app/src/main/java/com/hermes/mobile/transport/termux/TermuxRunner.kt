@@ -286,6 +286,85 @@ object TermuxRunner {
     }
 
     /**
+     * G14/G15 (полевой тест 27.10): полный диагностический снимок окружения —
+     * единственный надёжный канал на изолированном устройстве. Пользователь
+     * переписывает/фотографирует один блок текста вместо десяти ручных команд.
+     * Собирает: конфиг демона, .env-ключи (имена), статусы процессов, порт,
+     * список пакетов, ошибки лога.
+     */
+    fun collectDiagnosticsSnapshot(): String {
+        val sb = StringBuilder()
+        val home = "/data/data/com.termux/files/home"
+        val envFile = java.io.File("/data/data/com.termux/files/home/.hermes/.env")
+        val cfgFile = java.io.File("/data/data/com.termux/files/home/.hermes/config.yaml")
+        val logFile = java.io.File("$home/hermes_mobile.log")
+
+        sb.appendLine("=== HERMES MOBILE DIAGNOSTICS ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date())} ===")
+
+        // 1. Конфиг демона (ключи не показываем — имена env-ключей только)
+        sb.appendLine("--- config.yaml ---")
+        sb.appendLine(
+            runCatching {
+                if (cfgFile.exists()) cfgFile.readText().take(1500) else "(missing)"
+            }.getOrDefault("(unreadable)")
+        )
+
+        // 2. .env — только имена ключей
+        sb.appendLine("--- .env keys ---")
+        sb.appendLine(
+            runCatching {
+                if (envFile.exists()) {
+                    envFile.readLines().mapNotNull { l ->
+                        l.substringBefore('=').takeIf { it.isNotBlank() && !it.startsWith("#") }
+                    }.joinToString(", ").ifBlank { "(empty)" }
+                } else "(missing)"
+            }.getOrDefault("(unreadable)")
+        )
+
+        // 3. Процессы демона
+        sb.appendLine("--- processes (hermes/python) ---")
+        sb.appendLine(
+            runCatching {
+                val p = ProcessBuilder("sh", "-c", "ps -A | grep -iE 'hermes|python' | head -10")
+                    .redirectErrorStream(true).start()
+                p.inputStream.bufferedReader().readText().trim()
+            }.getOrDefault("(ps failed)")
+        )
+
+        // 4. Порт 8000
+        sb.appendLine("--- port 8000 ---")
+        sb.appendLine(
+            runCatching {
+                val s = java.net.Socket()
+                try {
+                    s.connect(java.net.InetSocketAddress("127.0.0.1", 8000), 1500)
+                    "OPEN"
+                } finally {
+                    s.close()
+                }
+                "OPEN"
+            }.recover { "CLOSED (${it.javaClass.simpleName})" }.getOrDefault("CLOSED")
+        )
+
+        // 5. REST-ответ (без токена — статус видно и так)
+        sb.appendLine("--- REST /status ---")
+        sb.appendLine(
+            runCatching {
+                val conn = java.net.URL("http://127.0.0.1:8000/api/status").openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 2000; conn.readTimeout = 2000
+                try { "HTTP ${conn.responseCode}" } finally { conn.disconnect() }
+            }.recover { "FAIL: ${it.javaClass.simpleName}: ${it.message?.take(80)}" }.getOrDefault("FAIL")
+        )
+
+        // 6. Хвост лога демона
+        sb.appendLine("--- daemon log tail (~30 lines) ---")
+        sb.appendLine(readDaemonLogTail(30) ?: "(no log file)")
+
+        sb.appendLine("=== END DIAGNOSTICS ===")
+        return sb.toString()
+    }
+
+    /**
      * Открывает окно приложения Termux.
      */
     fun openTermux(context: Context): Boolean {
