@@ -39,13 +39,37 @@ object TermuxRunner {
     const val FIX_SCRIPT_PATH = "~/.hermes_mobile_fix.py"
 
     /**
-     * G15 (полевой тест 27.10): на ЧИСТОЙ установке `hermes dashboard` не стартует —
-     * нет конфигурации → интерактивный setup-wizard → фоновый процесс без TTY висит
-     * на stdin-промпте. Preseed: минимальный config.yaml + .env до первого старта,
-     * чтобы daemon стартовал неинтерактивно. Провайдер/ключ приедут позже через
-     * PUT /api/config + PUT /api/env из приложения (02 §D7).
+     * G15 (docs/08 §2.8): preseed с реальной первичной конфигурацией, собранной
+     * в онбординге (название, base URL, ключ, модель). Формирует config.yaml
+     * (DEFAULT_CONFIG-совместимый: model + providers.<name>) и .env (ключ),
+     * чтобы `hermes dashboard` стартовал неинтерактивно с рабочим провайдером.
+     * Вызывается ДО запуска демона в составе установки.
      */
-    const val PRESEED_COMMAND = "mkdir -p ~/.hermes; if [ ! -f ~/.hermes/config.yaml ]; then printf 'version: 1\\nproviders: {}\\nactive: null\\n' > ~/.hermes/config.yaml; echo '[preseed] config.yaml created'; else echo '[preseed] config.yaml exists'; fi; if [ ! -f ~/.hermes/.env ]; then touch ~/.hermes/.env; echo '[preseed] .env created'; fi"
+    fun buildPreseedCommand(providerName: String, baseUrl: String, apiKey: String, model: String): String {
+        val safeName = providerName.trim().lowercase().replace(Regex("[^a-z0-9_-]"), "_").ifBlank { "custom" }
+        val envKey = "HERMES_CUSTOM_${safeName.uppercase()}_API_KEY"
+        return "mkdir -p ~/.hermes; cat > ~/.hermes/config.yaml << 'CFGEOF'\n" +
+            "model: \"$model\"\n" +
+            "providers:\n" +
+            "  $safeName:\n" +
+            "    base_url: \"$baseUrl\"\n" +
+            "    api_key: \"\"\n" +
+            "    key_env: \"$envKey\"\n" +
+            "    model: \"$model\"\n" +
+            "CFGEOF\n" +
+            "grep -q '$envKey=' ~/.hermes/.env 2>/dev/null || echo '$envKey=\"$apiKey\"' >> ~/.hermes/.env; " +
+            "echo '[preseed] config.yaml + .env written for provider $safeName'"
+    }
+
+    /**
+     * G15 (docs/08 §2.8): команда установки с конфигурацией провайдера из
+     * онбординга — preseed формирует config.yaml + .env ДО первого старта,
+     * демон стартует неинтерактивно с рабочим провайдером.
+     */
+    fun buildSetupCommandWithProvider(name: String, baseUrl: String, apiKey: String, model: String): String {
+        val preseed = buildPreseedCommand(name, baseUrl, apiKey, model)
+        return SETUP_COMMAND.replace("PRESEED_PLACEHOLDER", preseed)
+    }
 
     // G14 (docs/08 §2.7): зеркала Termux недоступны из РФ на чистой установке.
     // Fallback — прямая перезапись sources.list рабочими зеркалами (не sed-замена:
@@ -59,7 +83,7 @@ object TermuxRunner {
     // установка и запуск — одна команда, «Готово» = демон отвечает).
     // G14: стадийная модель, зеркальный fallback MIRROR_FALLBACK при недоступности
     // дефолтных зеркал (РФ), явные маркеры прогресса и ошибки, wake-lock.
-    const val SETUP_COMMAND = "termux-wake-lock; mkdir -p ~/.termux && (grep -q 'allow-external-apps=true' ~/.termux/termux.properties 2>/dev/null || echo 'allow-external-apps=true' >> ~/.termux/termux.properties) && termux-reload-settings; echo '[1/6] Properties OK'; (grep -q 'HERMES_DASHBOARD_SESSION_TOKEN' ~/.bashrc 2>/dev/null || echo 'export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"' >> ~/.bashrc) && (grep -q 'HERMES_DASHBOARD_TUI' ~/.bashrc 2>/dev/null || echo 'export HERMES_DASHBOARD_TUI=1' >> ~/.bashrc); echo '[2/6] bashrc OK'; (pkg update -y || (echo 'default mirrors unreachable, switching...'; (" + MIRROR_FALLBACK + ") || echo '[!] all mirrors FAILED - check internet, then rerun')); echo '[3/6] apt update done'; pkg install -y python python-pip python-psutil git curl coreutils procps rust binutils clang || echo '[!] pkg install FAILED - rerun this command later'; echo '[4/6] packages done'; if ! command -v python3 >/dev/null 2>&1; then echo '[!] python3 missing - run: pkg install python, then rerun'; elif ! python3 -m pip --version >/dev/null 2>&1; then echo '[!] pip module missing - run: pkg install python-pip, then rerun'; else export CARGO_BUILD_JOBS=2; echo 'installing hermes-agent (may compile Rust deps 10-40 min, keep screen on)...'; if python3 -m pip install --no-cache-dir 'hermes-agent[termux]' fastapi uvicorn jiter 2>&1 | tail -8; then cat > ~/.hermes_mobile_fix.py << 'PYEOF'\n" + FIX_SCRIPT + "PYEOF\npython3 ~/.hermes_mobile_fix.py && echo '[5/6] hermes-agent installed'; else echo '[!] pip install hermes-agent FAILED - see error above, rerun this command (safe)'; fi; fi; echo '[6/6] starting daemon...'; (" + PRESEED_COMMAND + "); if command -v hermes >/dev/null 2>&1; then IMPORT_ERR=\$(python3 -c 'import fastapi, uvicorn, jiter, pydantic' 2>&1 | grep -oE \"No module named '[^']+'\" | head -1); if [ -n \"\$IMPORT_ERR\" ]; then echo \"[!] missing \$IMPORT_ERR - run: python3 -m pip install fastapi uvicorn jiter, then rerun\"; else pkill -f '[h]ermes dashboard' 2>/dev/null; sleep 1; (hermes dashboard --port 8000 --host 127.0.0.1 --no-open --skip-build --tui > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 &) && disown -a 2>/dev/null && echo 'DONE - daemon starting, return to the app'; fi; else echo '[!] hermes not installed - resolve [!] steps above and rerun this command'; fi"
+    const val SETUP_COMMAND = "termux-wake-lock; mkdir -p ~/.termux && (grep -q 'allow-external-apps=true' ~/.termux/termux.properties 2>/dev/null || echo 'allow-external-apps=true' >> ~/.termux/termux.properties) && termux-reload-settings; echo '[1/6] Properties OK'; (grep -q 'HERMES_DASHBOARD_SESSION_TOKEN' ~/.bashrc 2>/dev/null || echo 'export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"' >> ~/.bashrc) && (grep -q 'HERMES_DASHBOARD_TUI' ~/.bashrc 2>/dev/null || echo 'export HERMES_DASHBOARD_TUI=1' >> ~/.bashrc); echo '[2/6] bashrc OK'; (pkg update -y || (echo 'default mirrors unreachable, switching...'; (" + MIRROR_FALLBACK + ") || echo '[!] all mirrors FAILED - check internet, then rerun')); echo '[3/6] apt update done'; pkg install -y python python-pip python-psutil git curl coreutils procps rust binutils clang || echo '[!] pkg install FAILED - rerun this command later'; echo '[4/6] packages done'; if ! command -v python3 >/dev/null 2>&1; then echo '[!] python3 missing - run: pkg install python, then rerun'; elif ! python3 -m pip --version >/dev/null 2>&1; then echo '[!] pip module missing - run: pkg install python-pip, then rerun'; else export CARGO_BUILD_JOBS=2; echo 'installing hermes-agent (may compile Rust deps 10-40 min, keep screen on)...'; if python3 -m pip install --no-cache-dir 'hermes-agent[termux]' fastapi uvicorn jiter 2>&1 | tail -8; then cat > ~/.hermes_mobile_fix.py << 'PYEOF'\n" + FIX_SCRIPT + "PYEOF\npython3 ~/.hermes_mobile_fix.py && echo '[5/6] hermes-agent installed'; else echo '[!] pip install hermes-agent FAILED - see error above, rerun this command (safe)'; fi; fi; echo '[6/6] starting daemon...'; (PRESEED_PLACEHOLDER); if command -v hermes >/dev/null 2>&1; then IMPORT_ERR=\$(python3 -c 'import fastapi, uvicorn, jiter, pydantic' 2>&1 | grep -oE \"No module named '[^']+'\" | head -1); if [ -n \"\$IMPORT_ERR\" ]; then echo \"[!] missing \$IMPORT_ERR - run: python3 -m pip install fastapi uvicorn jiter, then rerun\"; else pkill -f '[h]ermes dashboard' 2>/dev/null; sleep 1; (hermes dashboard --port 8000 --host 127.0.0.1 --no-open --skip-build --tui > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 &) && disown -a 2>/dev/null && echo 'DONE - daemon starting, return to the app'; fi; else echo '[!] hermes not installed - resolve [!] steps above and rerun this command'; fi"
 
     // Команда штатного запуска агента с экспортом переменных TUI и сессионного токена.
     // ВАЖНО: pkill с паттерном '[h]ermes dashboard' — квадратные скобки не дают pkill -f
@@ -72,7 +96,7 @@ object TermuxRunner {
     // pkill использует '[h]ermes' трюк против самоубийства команды (см. LAUNCH_COMMAND).
     // G14: pkg-шаги отделены (сбой установки не блокирует запуск уже установленного hermes),
     // wake-lock держит установку живой.
-    const val BACKGROUND_DAEMON_CMD = "export PATH=\"\$HOME/.local/bin:/data/data/com.termux/files/usr/bin:\$PATH\"; export HERMES_DASHBOARD_TUI=1; export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"; termux-wake-lock; if ! command -v hermes > /dev/null 2>&1; then (pkg update -y || (" + MIRROR_FALLBACK + ")) && pkg install -y python python-pip python-psutil git curl coreutils procps rust binutils clang && CARGO_BUILD_JOBS=2 python3 -m pip install --no-cache-dir 'hermes-agent[termux]' fastapi uvicorn jiter || echo '[!] install failed - open Termux and run setup again'; fi; if command -v hermes >/dev/null 2>&1; then (" + PRESEED_COMMAND + "); cat > ~/.hermes_mobile_fix.py << 'PYEOF'\n" + FIX_SCRIPT + "PYEOF\npython3 ~/.hermes_mobile_fix.py 2>/dev/null; pkill -f '[h]ermes dashboard' 2>/dev/null; sleep 1; (hermes dashboard --port 8000 --host 127.0.0.1 --no-open --skip-build --tui > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 &) && disown -a 2>/dev/null; else echo '[!] hermes not installed - run the setup command in the wizard first'; fi"
+    const val BACKGROUND_DAEMON_CMD = "export PATH=\"\$HOME/.local/bin:/data/data/com.termux/files/usr/bin:\$PATH\"; export HERMES_DASHBOARD_TUI=1; export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"; termux-wake-lock; if ! command -v hermes > /dev/null 2>&1; then (pkg update -y || (" + MIRROR_FALLBACK + ")) && pkg install -y python python-pip python-psutil git curl coreutils procps rust binutils clang && CARGO_BUILD_JOBS=2 python3 -m pip install --no-cache-dir 'hermes-agent[termux]' fastapi uvicorn jiter || echo '[!] install failed - open Termux and run setup again'; fi; if command -v hermes >/dev/null 2>&1; then if [ ! -f ~/.hermes/config.yaml ]; then mkdir -p ~/.hermes; printf 'model: \\\"\\\"\\nproviders: {}\\n' > ~/.hermes/config.yaml; fi; cat > ~/.hermes_mobile_fix.py << 'PYEOF'\n" + FIX_SCRIPT + "PYEOF\npython3 ~/.hermes_mobile_fix.py 2>/dev/null; pkill -f '[h]ermes dashboard' 2>/dev/null; sleep 1; (hermes dashboard --port 8000 --host 127.0.0.1 --no-open --skip-build --tui > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 &) && disown -a 2>/dev/null; else echo '[!] hermes not installed - run the setup command in the wizard first'; fi"
 
     // Команда обновления Hermes Agent в Termux в один клик
     const val UPDATE_COMMAND = "export PATH=\"\$HOME/.local/bin:/data/data/com.termux/files/usr/bin:\$PATH\"; export HERMES_DASHBOARD_TUI=1; export HERMES_DASHBOARD_SESSION_TOKEN=\"hermes_mobile_local\"; termux-wake-lock; CARGO_BUILD_JOBS=2 python3 -m pip install --no-cache-dir --upgrade 'hermes-agent[termux]' fastapi uvicorn jiter && cat > ~/.hermes_mobile_fix.py << 'PYEOF'\n" + FIX_SCRIPT + "PYEOF\npython3 ~/.hermes_mobile_fix.py && pkill -f '[h]ermes dashboard' 2>/dev/null; sleep 1; (hermes dashboard --port 8000 --host 127.0.0.1 --no-open --skip-build --tui > /data/data/com.termux/files/home/hermes_mobile.log 2>&1 &) && disown -a 2>/dev/null"

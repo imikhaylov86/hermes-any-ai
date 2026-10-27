@@ -49,9 +49,104 @@ import kotlinx.coroutines.delay
 enum class WizardStep {
     WELCOME,
     TERMUX_CHECK,
+    PROVIDER_CONFIG,
     TERMUX_SETUP,
     TERMUX_LAUNCH,
     REMOTE_SERVER
+}
+
+/** G15 (docs/08 §2.8): первичная конфигурация провайдера, собирается ДО установки. */
+data class OnboardingProviderConfig(
+    val name: String = "custom",
+    val baseUrl: String = "",
+    val apiKey: String = "",
+    val model: String = ""
+) {
+    val isComplete: Boolean get() = baseUrl.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank()
+}
+
+@Composable
+private fun ProviderConfigStepContent(
+    config: OnboardingProviderConfig,
+    onConfigChange: (OnboardingProviderConfig) -> Unit,
+    onBack: () -> Unit,
+    onNext: () -> Unit
+) {
+    val appStrings = strings
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text = "Конфигурация AI-провайдера",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Данные запишутся в конфиг агента при установке — демон стартует сразу рабочим, без мастера настройки. Позже можно изменить в настройках приложения.",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = config.name,
+            onValueChange = { onConfigChange(config.copy(name = it)) },
+            label = { Text("Название (например, openrouter)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = config.baseUrl,
+            onValueChange = { onConfigChange(config.copy(baseUrl = it)) },
+            label = { Text("Base URL (https://api.../v1)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = config.apiKey,
+            onValueChange = { onConfigChange(config.copy(apiKey = it)) },
+            label = { Text("API-ключ") },
+            singleLine = true,
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = config.model,
+            onValueChange = { onConfigChange(config.copy(model = it)) },
+            label = { Text("Модель (например, gpt-4o-mini)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(14.dp))
+
+        val complete = config.isComplete
+        Button(
+            onClick = onNext,
+            enabled = complete,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(46.dp),
+            shape = AppDimensions.ShapeButton,
+            colors = ButtonDefaults.buttonColors(containerColor = if (complete) AccentEmerald else MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Text(
+                text = if (complete) "Конфигурация готова →" else "Заполните все поля",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (complete) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
+            Text("Назад", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }
 
 @Composable
@@ -70,6 +165,8 @@ fun OnboardingDialog(
 
     var currentStep by remember { mutableStateOf(WizardStep.WELCOME) }
     var isTermuxInstalled by remember { mutableStateOf(TermuxRunner.isTermuxInstalled(context)) }
+    // G15 (docs/08 §2.8): первичная конфигурация провайдера — до установки
+    var providerConfig by remember { mutableStateOf(OnboardingProviderConfig()) }
 
     // Автоматическая проверка при возврате в приложение из Termux / браузера (ON_RESUME)
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -140,7 +237,8 @@ fun OnboardingDialog(
                             onClick = {
                                 currentStep = when (currentStep) {
                                     WizardStep.TERMUX_CHECK -> WizardStep.WELCOME
-                                    WizardStep.TERMUX_SETUP -> WizardStep.TERMUX_CHECK
+                                    WizardStep.PROVIDER_CONFIG -> WizardStep.TERMUX_CHECK
+                                    WizardStep.TERMUX_SETUP -> WizardStep.PROVIDER_CONFIG
                                     WizardStep.TERMUX_LAUNCH -> WizardStep.TERMUX_SETUP
                                     WizardStep.REMOTE_SERVER -> WizardStep.WELCOME
                                     WizardStep.WELCOME -> WizardStep.WELCOME
@@ -250,6 +348,16 @@ fun OnboardingDialog(
                                                 Toast.LENGTH_SHORT
                                             ).show()
                                         },
+                                        onNext = { currentStep = WizardStep.PROVIDER_CONFIG }
+                                    )
+                                }
+                                WizardStep.PROVIDER_CONFIG -> {
+                                    // G15 (docs/08 §2.8): конфиг провайдера ДО установки —
+                                    // демон стартует с рабочим провайдером, wizard агента не запускается
+                                    ProviderConfigStepContent(
+                                        config = providerConfig,
+                                        onConfigChange = { providerConfig = it },
+                                        onBack = { currentStep = WizardStep.TERMUX_CHECK },
                                         onNext = { currentStep = WizardStep.TERMUX_SETUP }
                                     )
                                 }
@@ -294,8 +402,16 @@ fun OnboardingDialog(
                                         }
                                     }
 
+                                    // G15: команда установки с вшитой конфигурацией провайдера
+                                    val setupWithProvider = TermuxRunner.buildSetupCommandWithProvider(
+                                        name = providerConfig.name,
+                                        baseUrl = providerConfig.baseUrl,
+                                        apiKey = providerConfig.apiKey,
+                                        model = providerConfig.model
+                                    )
+
                                     TermuxSetupStepContent(
-                                        command = TermuxRunner.SETUP_COMMAND,
+                                        command = setupWithProvider,
                                         isMonitoring = isMonitoring,
                                         probeLevel = probeLevel,
                                         daemonLogTail = daemonLogTail,
@@ -313,7 +429,7 @@ fun OnboardingDialog(
                                             Toast.makeText(context, "Перезапуск демона…", Toast.LENGTH_SHORT).show()
                                         },
                                         onCopyAndOpenTermux = {
-                                            clipboardManager.setText(AnnotatedString(TermuxRunner.SETUP_COMMAND))
+                                            clipboardManager.setText(AnnotatedString(setupWithProvider))
                                             Toast.makeText(context, appStrings.onboardingCommandCopied, Toast.LENGTH_SHORT).show()
                                             isMonitoring = true
                                             if (!TermuxRunner.openTermux(context)) {
@@ -321,7 +437,7 @@ fun OnboardingDialog(
                                             }
                                         },
                                         onCopyOnly = {
-                                            clipboardManager.setText(AnnotatedString(TermuxRunner.SETUP_COMMAND))
+                                            clipboardManager.setText(AnnotatedString(setupWithProvider))
                                             Toast.makeText(context, appStrings.onboardingCommandCopied, Toast.LENGTH_SHORT).show()
                                             isMonitoring = true
                                         },
