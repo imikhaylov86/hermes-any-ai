@@ -146,6 +146,36 @@ fun ChatScreen(
 
     val isStreaming = messages.any { it.status == MessageStatus.STREAMING }
 
+    // Кнопка вложений: сперва runtime-разрешение на медиа (Android 13+), затем пикер.
+    // Без permission DocumentsUI не показывает локальные коллекции («Изображения» пусты).
+    val mediaPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val granted = grants.values.all { it }
+        filePickerLauncher.launch("*/*")
+    }
+
+    fun openAttachmentPicker() {
+        val sdk = android.os.Build.VERSION.SDK_INT
+        val needed = if (sdk >= 33) {
+            arrayOf(
+                android.Manifest.permission.READ_MEDIA_IMAGES,
+                android.Manifest.permission.READ_MEDIA_VIDEO,
+                android.Manifest.permission.READ_MEDIA_AUDIO
+            )
+        } else {
+            arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        val toRequest = needed.filter {
+            context.checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (toRequest.isEmpty()) {
+            filePickerLauncher.launch("*/*")
+        } else {
+            mediaPermissionLauncher.launch(toRequest.toTypedArray())
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -369,7 +399,7 @@ fun ChatScreen(
                 ) {
                     // Кнопка вложений
                     IconButton(
-                        onClick = { filePickerLauncher.launch("*/*") },
+                        onClick = { openAttachmentPicker() },
                         modifier = Modifier
                             .size(44.dp)
                             .clip(AppDimensions.ShapeButton)

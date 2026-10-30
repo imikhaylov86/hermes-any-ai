@@ -355,9 +355,12 @@ class ChatRepositoryImpl(
         stoppedSessionIds.remove("sess_main")
         stoppedMessageIds.clear()
         val userMsgId = UUID.randomUUID().toString()
+        // G16 (полевой тест 30.10): dataUrl (base64 всего файла) НЕ хранится в Room —
+        // SQLiteBlobTooBigException убивал список сообщений при вложениях >1.5 МБ.
+        // В БД — только метаданные; dataUrl живёт в памяти до отправки по WS.
         val attachJson = if (attachments.isNotEmpty()) {
             try {
-                Json.encodeToString(attachments)
+                Json.encodeToString(attachments.map { it.copy(dataUrl = null) })
             } catch (e: Exception) {
                 null
             }

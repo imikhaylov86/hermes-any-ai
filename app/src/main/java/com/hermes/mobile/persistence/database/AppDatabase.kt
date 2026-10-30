@@ -1,6 +1,7 @@
 package com.hermes.mobile.persistence.database
 
 import androidx.room.*
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -116,6 +117,75 @@ abstract class AppDatabase : RoomDatabase() {
                     "hermes_mobile_database"
                 )
                     .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    // G16 (полевой тест 30.10): старые билды писали base64-dataUrl в
+                    // attachmentsJson → SQLiteBlobTooBigException убивал Flow сообщений.
+                    // Чистка чисто SQL-ом (строка не помещается в CursorWindow даже при
+                    // чтении — поэтому без SELECT полного значения: substr-замена на месте).
+                    .addCallback(object : RoomDatabase.Callback() {
+                        override fun onOpen(db: SupportSQLiteDatabase) {
+                            super.onOpen(db)
+                            try {
+                                // Пересобираем attachmentsJson без dataUrl прямо в SQL:
+                                // до первого '"' после "dataUrl":" — не выйдет регексом в SQL,
+                                // поэтому режем по маркеру: находим строки с data: и заменяем
+                                // значение на null посимвольной перезаписью через substr.
+                                val ids = db.query("SELECT id FROM messages WHERE attachmentsJson LIKE '%data:%'").use { c ->
+                                    val list = mutableListOf<String>()
+                                    while (c.moveToNext()) list.add(c.getString(0))
+                                    list
+                                }
+                                if (ids.isNotEmpty()) {
+                                    for (id in ids) {
+                                        // Полное значение читаем порционно через SQL-функции:
+                                        // длина + substring по кускам вне CursorWindow.
+                                        val len = db.query("SELECT length(attachmentsJson) FROM messages WHERE id=?", arrayOf(id)).use { c ->
+                                            if (c.moveToFirst()) c.getInt(0) else 0
+                                        }
+                                        if (len <= 0) continue
+                                        val marker = "\"dataUrl\":\""
+                                        // SQL-ом заменяем каждое "dataUrl":"<...>" на "dataUrl":null
+                                        // (без чтения BLOB в Java — чистый UPDATE с SQL-функциями):
+                                        db.execSQL(
+                                            "UPDATE messages SET attachmentsJson = " +
+                                                "replace(attachmentsJson, substr(attachmentsJson, instr(attachmentsJson, '\"dataUrl\":\"'), " +
+                                                "instr(substr(attachmentsJson, instr(attachmentsJson, '\"dataUrl\":\"') + 11, length(attachmentsJson)), '\"') + 11), '\"dataUrl\":null') " +
+                                                "WHERE id=?",
+                                            arrayOf(id)
+                                        )
+                                        // Одного вложения с dataUrl в строке достаточно
+                                        // для краша; цикл повторяет при повторном LIKE-попадании.
+                                    }
+                                    // Повторная проверка: если dataUrl ещё остались —
+                                    // многократно применяем replace (несколько вложений в строке).
+                                    var remaining = db.query("SELECT COUNT(*) FROM messages WHERE attachmentsJson LIKE '%\"dataUrl\":\"%'").use { c ->
+                                        if (c.moveToFirst()) c.getInt(0) else 0
+                                    }
+                                    var guard = 0
+                                    while (remaining > 0 && guard < 20) {
+                                        guard++
+                                        db.query("SELECT id FROM messages WHERE attachmentsJson LIKE '%\"dataUrl\":\"%' LIMIT 1").use { c ->
+                                            if (c.moveToFirst()) {
+                                                val id = c.getString(0)
+                                                db.execSQL(
+                                                    "UPDATE messages SET attachmentsJson = " +
+                                                        "replace(attachmentsJson, substr(attachmentsJson, instr(attachmentsJson, '\"dataUrl\":\"'), " +
+                                                        "instr(substr(attachmentsJson, instr(attachmentsJson, '\"dataUrl\":\"') + 11, length(attachmentsJson)), '\"') + 11), '\"dataUrl\":null') " +
+                                                        "WHERE id=?",
+                                                    arrayOf(id)
+                                                )
+                                            }
+                                        }
+                                        remaining = db.query("SELECT COUNT(*) FROM messages WHERE attachmentsJson LIKE '%\"dataUrl\":\"%'").use { c ->
+                                            if (c.moveToFirst()) c.getInt(0) else 0
+                                        }
+                                    }
+                                    android.util.Log.i("AppDatabase", "G16 sanitizer cleaned ${ids.size} attachment rows (guard=$guard)")
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.w("AppDatabase", "G16 sanitizer failed: ${e.message}")
+                            }
+                        }
+                    })
                     .build()
                 INSTANCE = instance
                 instance
