@@ -7,6 +7,7 @@ import com.hermes.mobile.persistence.database.SessionDao
 import com.hermes.mobile.persistence.datastore.AppSettingsManager
 import com.hermes.mobile.transport.dto.AttachmentDto
 import com.hermes.mobile.transport.rest.DashboardRestClient
+import com.hermes.mobile.transport.termux.TermuxRunner
 import com.hermes.mobile.transport.websocket.MobileWebSocketClient
 import com.hermes.mobile.transport.websocket.WebSocketIncomingEvent
 import kotlinx.coroutines.*
@@ -59,6 +60,8 @@ class ChatRepositoryImpl(
     private fun observeConnectionForRecovery() {
         scope.launch {
             var previousState: ConnectionState? = null
+            var failedAttempts = 0
+            var autoStartTried = false
             webSocketClient.connectionState.collect { state ->
                 val wasDisconnected = previousState == ConnectionState.RECONNECTING ||
                         previousState == ConnectionState.FAILED
@@ -68,9 +71,37 @@ class ChatRepositoryImpl(
                         recoverHistoryFromDaemon()
                     }
                     hasConnectedOnce = true
+                    failedAttempts = 0
+                    autoStartTried = false
+                }
+                if (state == ConnectionState.RECONNECTING) {
+                    failedAttempts++
+                }
+                // G15 (полевой тест 30.10): демон Termux не переживает reboot телефона.
+                // «Connection refused» на loopback = демона нет — приложение поднимает его
+                // само (RUN_COMMAND от uid приложения — единственный рабочий канал;
+                // adb/shell permission не имеет). Одна попытка на цикл, cooldown 3 попытки.
+                if (failedAttempts >= 3 && !autoStartTried && isLoopbackEndpoint()) {
+                    autoStartTried = true
+                    android.util.Log.i("ChatRepository", "Daemon likely down (3 failed attempts, loopback) — auto-starting via Termux")
+                    TermuxRunner.startHermesDaemonInBackground(
+                        com.hermes.mobile.HermesApp.instance
+                    )
                 }
             }
         }
+    }
+
+    /** Loopback-эндпоинт: авто-старт демона допустим только для локального Termux-режима. */
+    private fun isLoopbackEndpoint(): Boolean {
+        val url = webSocketClient.connectionState.let { _ ->
+            try {
+                com.hermes.mobile.HermesApp.instance.settingsManager.serverUrl.value
+            } catch (_: Exception) {
+                "ws://127.0.0.1:8000/api/ws"
+            }
+        }
+        return url.startsWith("ws://127.0.0.1") || url.startsWith("ws://localhost")
     }
 
     /**
