@@ -66,7 +66,13 @@ Thumbs.db
 # Temporary workspace files (clean up after task)
 tmp/*
 !tmp/.gitkeep
+*.log
+*.sqlite
+.kotlin/
+scripts/_*
+gateway-start-from-app-handoff.md
 
 # AI SDD starter kit and local specs (versioned locally, never pushed)
 AI_SDD/
 docs/
+

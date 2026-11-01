@@ -1,6 +1,7 @@
 package com.hermes.mobile.presentation
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -41,6 +42,7 @@ class MainActivity : ComponentActivity() {
 
         // Запуск фоновой службы агента
         checkAndStartForegroundService()
+        handleIntent(intent)
 
         val app = HermesApp.instance
         val chatViewModel = ChatViewModel(
@@ -246,6 +248,17 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.getStringExtra("action") == "start_termux_daemon") {
+            com.hermes.mobile.transport.termux.TermuxRunner.startHermesDaemonInBackground(this)
+        }
     }
 
     private fun checkAndStartForegroundService() {

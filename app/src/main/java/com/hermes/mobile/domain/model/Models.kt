@@ -60,7 +60,8 @@ data class SessionInfo(
     val model: String = "Hermes 3",
     val isPinned: Boolean = false,
     val isArchived: Boolean = false,
-    val lastMessagePreview: String = ""
+    val lastMessagePreview: String = "",
+    val hermesSessionId: String? = null
 )
 
 /**

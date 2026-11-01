@@ -1,6 +1,7 @@
 package com.hermes.mobile.presentation.chat
 
 import android.net.Uri
+import coil.compose.AsyncImage
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -126,10 +127,28 @@ fun ChatScreen(
                     if (bytes != null && bytes.isNotEmpty()) {
                         val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
                         val dataUrl = "data:$mimeType;base64,$base64"
+
+                        // Сохраняем локальную копию в приватное хранилище приложения,
+                        // чтобы файл был доступен для мгновенного оффлайн-превью и не зависел от временных permissions content://
+                        val localFile = try {
+                            val dir = java.io.File(context.filesDir, "attachments")
+                            dir.mkdirs()
+                            val f = java.io.File(dir, fileName)
+                            f.writeBytes(bytes)
+                            f
+                        } catch (e: Exception) {
+                            null
+                        }
+                        val localUriString = if (localFile != null && localFile.exists()) {
+                            android.net.Uri.fromFile(localFile).toString()
+                        } else {
+                            uri.toString()
+                        }
+
                         val attachment = Attachment(
                             name = fileName,
                             mimeType = mimeType,
-                            uriOrPath = uri.toString(),
+                            uriOrPath = localUriString,
                             sizeBytes = bytes.size.toLong(),
                             dataUrl = dataUrl
                         )
@@ -359,23 +378,57 @@ fun ChatScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         attachedFiles.forEach { file ->
+                            val isImg = file.mimeType.startsWith("image/")
+                            val model = file.uriOrPath ?: file.dataUrl
                             Surface(
-                                shape = AppDimensions.ShapeBadge,
-                                color = MaterialTheme.colorScheme.surfaceVariant
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                tonalElevation = 2.dp
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                 ) {
-                                    Text(
-                                        text = "📎 ${file.name.take(15)}",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
+                                    if (isImg && model != null) {
+                                        AsyncImage(
+                                            model = model,
+                                            contentDescription = file.name,
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.AttachFile,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                    }
+                                    Column {
+                                        Text(
+                                            text = file.name.take(16),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        if (file.sizeBytes > 0) {
+                                            val sizeKb = file.sizeBytes / 1024
+                                            val sizeStr = if (sizeKb > 1024) String.format("%.1f MB", sizeKb / 1024.0) else "$sizeKb KB"
+                                            Text(
+                                                text = sizeStr,
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     IconButton(
                                         onClick = { viewModel.removeAttachment(file) },
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(20.dp)
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Close,

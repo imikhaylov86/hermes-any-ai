@@ -46,6 +46,12 @@ class MobileWebSocketClient(
     var onHermesSessionEstablished: ((String) -> Unit)? = null
 
     /**
+     * G17 (03 §D10): вызывается при создании или сбросе серверной сессии для
+     * конкретного локального чата (chatId) — для персиста hermesSessionId в Room.
+     */
+    var onHermesSessionCreatedForChat: ((chatId: String, hermesSessionId: String?) -> Unit)? = null
+
+    /**
      * G3 (docs/03 §D6): сессионный токен передаётся заголовком X-Hermes-Session-Token
      * в WS upgrade, а не в URL. URL хранится без query-токена; query-fallback
      * применяется только для loopback при отказе handshake.
@@ -97,6 +103,8 @@ class MobileWebSocketClient(
     private var activeStreamSequence: Int = 0
     private var pendingPromptText: String? = null
     private var pendingPromptAttachments: List<AttachmentDto> = emptyList()
+    private var lastSubmittedPromptText: String? = null
+    private var lastSubmittedAttachments: List<AttachmentDto> = emptyList()
     private var rpcCounter: Long = 100
     private var activeModel: String? = null
     private var activeProvider: String? = null
@@ -169,6 +177,13 @@ class MobileWebSocketClient(
         scope.cancel()
     }
 
+    fun evictConnectionPool() {
+        try {
+            okHttpClient.connectionPool.evictAll()
+        } catch (_: Exception) {
+        }
+    }
+
     fun reconnect(force: Boolean = true) {
         synchronized(connectionLock) {
             Log.i(tag, "reconnect(force=$force) called, canceling active connection job if any")
@@ -177,11 +192,15 @@ class MobileWebSocketClient(
             connectionJob = null
 
             try {
+                // cancel() немедленно прерывает зависший сокет/чтение (особенно при смене сети),
+                // а close() корректно завершает handshake, если соединение ещё живо
+                webSocket?.cancel()
                 webSocket?.close(1000, if (force) "Forced reconnect" else "Reconnecting")
             } catch (e: Exception) {
                 Log.w(tag, "Error closing previous websocket: ${e.message}")
             }
             webSocket = null
+            evictConnectionPool()
 
             connectionJob = scope.launch {
                 runConnectionLoop(forceImmediate = force)
@@ -218,18 +237,18 @@ class MobileWebSocketClient(
                         webSocket = ws
                         backoffMs = 1000L
                         _connectionState.value = ConnectionState.AUTHENTICATING
-                        sendHello()
                         if (endpointUrl.contains("/api/ws")) {
                             val sid = hermesSessionId
                             if (sid != null) {
-                                // G4 (03 §D9г): session.resume — серверная сессия уже
-                                // существует, пересоздание не требуется; READY сразу.
-                                Log.i(tag, "Resuming existing hermes session (no session.create)")
-                                _connectionState.value = ConnectionState.READY
-                                _incomingEvents.tryEmit(WebSocketIncomingEvent.Ready(sessionId = sid, activeModel = activeModel ?: ""))
+                                // G4 (03 §D9г): возобновляем существующую серверную сессию через session.resume,
+                                // чтобы привязать текущий живой WebSocket к сессии на демоне
+                                Log.i(tag, "Resuming existing hermes session $sid via session.resume")
+                                sendSessionResume(sid)
                             } else {
                                 sendSessionCreate()
                             }
+                        } else {
+                            sendHello()
                         }
                     }
 
@@ -376,6 +395,38 @@ class MobileWebSocketClient(
     /** Текущий серверный идентификатор сессии (для персиста из репозитория). */
     fun currentHermesSessionId(): String? = hermesSessionId
 
+    /**
+     * G17 (03 §D10): переключение активного чата без сброса серверной сессии.
+     * Если у чата уже есть сохранённый hermesSessionId, переключаемся на него;
+     * если нет — hermesSessionId сбрасывается в null, и при первой отправке будет создан session.create.
+     */
+    fun switchSession(sessionId: String, hermesSid: String?) {
+        currentSessionId = sessionId
+        hermesSessionId = hermesSid
+        Log.i(tag, "Switched session to chat=$sessionId, hermesSessionId=${hermesSid?.take(8) ?: "null"}")
+        if (webSocket != null && endpointUrl.contains("/api/ws")) {
+            if (hermesSid != null) {
+                sendSessionResume(hermesSid)
+            } else {
+                sendSessionCreate()
+            }
+        }
+    }
+
+    private fun sendSessionResume(targetSessionId: String) {
+        val resumeRpc = buildJsonObject {
+            put("jsonrpc", "2.0")
+            put("id", rpcCounter++)
+            put("method", "session.resume")
+            put("params", buildJsonObject {
+                put("session_id", targetSessionId)
+                put("cols", 80)
+            })
+        }
+        Log.i(tag, "Sending session.resume for $targetSessionId: $resumeRpc")
+        webSocket?.send(resumeRpc.toString())
+    }
+
     private fun sendSessionCreate() {
         val createRpc = buildJsonObject {
             put("jsonrpc", "2.0")
@@ -393,17 +444,82 @@ class MobileWebSocketClient(
                 }
             })
         }
+        Log.i(tag, "Sending session.create: $createRpc")
         webSocket?.send(createRpc.toString())
     }
 
     private fun handleIncomingFrame(text: String) {
         scope.launch {
             try {
-                Log.d(tag, "FRAME: $text")
+                Log.i(tag, "FRAME: $text")
 
                 // 1. Проверяем JSON-RPC формат (Hermes Agent Gateway)
                 if (text.contains("\"jsonrpc\"")) {
                     val root = json.parseToJsonElement(text).jsonObject
+
+                    // Проверяем ошибку JSON-RPC (G17 / 03 §D10 п.4: fallback при 4001/4007)
+                    if (root.containsKey("error")) {
+                        val errObj = root["error"]?.jsonObject
+                        val errCode = errObj?.get("code")?.jsonPrimitive?.intOrNull ?: 0
+                        val errMsg = errObj?.get("message")?.jsonPrimitive?.contentOrNull ?: ""
+                        Log.w(tag, "JSON-RPC error received: code=$errCode, message=$errMsg")
+
+                        // Ошибка 4001 / 4007: Session not found / expired on daemon
+                        if (errCode == 4001 || errCode == 4007 || errMsg.contains("session not found", ignoreCase = true)) {
+                            Log.w(tag, "Hermes session expired/not found on daemon (code $errCode). Performing automatic fallback & creation...")
+                            val targetChat = currentSessionId ?: "sess_main"
+                            hermesSessionId = null
+                            onHermesSessionCreatedForChat?.invoke(targetChat, null)
+
+                            val retryContent = lastSubmittedPromptText
+                            val retryAtt = lastSubmittedAttachments
+                            lastSubmittedPromptText = null
+                            lastSubmittedAttachments = emptyList()
+
+                            if (retryContent != null || retryAtt.isNotEmpty()) {
+                                pendingPromptText = retryContent
+                                pendingPromptAttachments = retryAtt
+                            }
+                            sendSessionCreate()
+                            return@launch
+                        } else if (errCode == 4009 || errMsg.contains("session busy", ignoreCase = true)) {
+                            // Ошибка 4009: Session busy (зависший воркер или незавершённая команда)
+                            Log.w(tag, "Hermes session is busy (code 4009). Sending session.interrupt and creating fresh session...")
+                            val targetChat = currentSessionId ?: "sess_main"
+                            val staleSid = hermesSessionId ?: targetChat
+
+                            // Принудительно прерываем зависшую задачу на демоне
+                            val rpcInterrupt = buildJsonObject {
+                                put("jsonrpc", "2.0")
+                                put("id", rpcCounter++)
+                                put("method", "session.interrupt")
+                                put("params", buildJsonObject {
+                                    put("session_id", staleSid)
+                                })
+                            }
+                            webSocket?.send(rpcInterrupt.toString())
+
+                            // Сбрасываем идентификатор зависшей сессии
+                            hermesSessionId = null
+                            onHermesSessionCreatedForChat?.invoke(targetChat, null)
+
+                            val retryContent = lastSubmittedPromptText
+                            val retryAtt = lastSubmittedAttachments
+                            lastSubmittedPromptText = null
+                            lastSubmittedAttachments = emptyList()
+
+                            if (!retryContent.isNullOrBlank() || retryAtt.isNotEmpty()) {
+                                pendingPromptText = retryContent
+                                pendingPromptAttachments = retryAtt
+                            }
+                            // Запрашиваем создание чистой сессии
+                            sendSessionCreate()
+                            return@launch
+                        } else {
+                            _incomingEvents.emit(WebSocketIncomingEvent.Error(code = errCode.toString(), message = errMsg.ifBlank { "RPC error ($errCode)" }))
+                            return@launch
+                        }
+                    }
 
                     // Проверяем результат вызова session.create
                     if (root.containsKey("result")) {
@@ -411,6 +527,8 @@ class MobileWebSocketClient(
                         val newSid = resultObj?.get("session_id")?.jsonPrimitive?.contentOrNull
                         if (newSid != null) {
                             hermesSessionId = newSid
+                            val targetChat = currentSessionId ?: "sess_main"
+                            onHermesSessionCreatedForChat?.invoke(targetChat, newSid)
                             // G4 (03 §D9г): персист для resume при будущих reconnect
                             onHermesSessionEstablished?.invoke(newSid)
                             _connectionState.value = ConnectionState.READY
@@ -442,6 +560,9 @@ class MobileWebSocketClient(
                                 val sid = payload?.get("session_id")?.jsonPrimitive?.contentOrNull
                                 if (sid != null) {
                                     hermesSessionId = sid
+                                    val targetChat = currentSessionId ?: "sess_main"
+                                    onHermesSessionCreatedForChat?.invoke(targetChat, sid)
+                                    onHermesSessionEstablished?.invoke(sid)
                                 }
                                 _connectionState.value = ConnectionState.READY
                                 _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = sid ?: "", activeModel = activeModel ?: ""))
@@ -631,34 +752,25 @@ class MobileWebSocketClient(
     }
 
     private fun submitPromptRpc(sessionId: String, content: String, attachments: List<AttachmentDto> = emptyList()) {
+        lastSubmittedPromptText = content
+        lastSubmittedAttachments = attachments
         scope.launch {
             val fileRefs = mutableListOf<String>()
             for (att in attachments) {
-                val dUrl = att.dataUrl
-                if (!dUrl.isNullOrBlank()) {
-                    val attachRpc = buildJsonObject {
-                        put("jsonrpc", "2.0")
-                        put("id", rpcCounter++)
-                        put("method", "file.attach")
-                        put("params", buildJsonObject {
-                            put("session_id", sessionId)
-                            put("data_url", dUrl)
-                            put("name", att.name)
-                        })
-                    }
-                    webSocket?.send(attachRpc.toString())
-                    fileRefs.add("@file:.hermes/attachments/${att.name}")
-                }
+                // G15 (03 §D11 п.1): файл уже загружен через REST /api/attachments/upload
+                fileRefs.add("@file:.hermes/attachments/${att.name}")
             }
 
-            var effectiveText = content.trim()
-            if (fileRefs.isNotEmpty()) {
-                val prefix = fileRefs.joinToString(" ")
-                effectiveText = if (effectiveText.isBlank()) {
-                    "$prefix Что находится на прикреплённом файле? Опиши подробно."
-                } else {
-                    "$prefix $effectiveText"
-                }
+            val appEnvDirective = "[Инструкция среды: Клиент Hermes Any AI. Веди диалог напрямую здесь. НЕ отправляй сообщения или файлы через Telegram send_message без явной просьбы пользователя. Если генерируешь или редактируешь изображение, верни его путь отдельной строкой формата MEDIA:/полный/путь/к/файлу]"
+
+            val userText = content.trim()
+            val effectiveText = when {
+                fileRefs.isNotEmpty() && userText.isBlank() ->
+                    "${fileRefs.joinToString(" ")}\n$appEnvDirective\nЧто находится на прикреплённом файле? Опиши подробно."
+                fileRefs.isNotEmpty() ->
+                    "${fileRefs.joinToString(" ")}\n$appEnvDirective\n$userText"
+                else ->
+                    "$appEnvDirective\n$userText"
             }
 
             val promptRpc = buildJsonObject {
@@ -781,10 +893,8 @@ class MobileWebSocketClient(
         if (provider.isNotEmpty()) {
             activeProvider = provider.removePrefix("custom_")
         }
-        hermesSessionId = null
-        if (_connectionState.value == ConnectionState.READY) {
-            sendSessionCreate()
-        }
+        // G17 (03 §D10): hermesSessionId НЕ зануляем при установке/смене модели!
+        // Это предотвращает потерю контекста диалога при старте приложения и смене модели.
     }
 
     fun setModel(model: String) {
@@ -793,6 +903,8 @@ class MobileWebSocketClient(
 
     fun resetHermesSession() {
         hermesSessionId = null
+        val currentChat = currentSessionId ?: "sess_main"
+        onHermesSessionCreatedForChat?.invoke(currentChat, null)
         if (_connectionState.value == ConnectionState.READY) {
             sendSessionCreate()
         }

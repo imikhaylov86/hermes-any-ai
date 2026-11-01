@@ -10,15 +10,39 @@ import com.hermes.mobile.persistence.datastore.AppSettingsManager
 import com.hermes.mobile.security.KeystoreManager
 import com.hermes.mobile.transport.rest.DashboardRestClient
 import com.hermes.mobile.transport.websocket.MobileWebSocketClient
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
-class HermesApp : Application() {
+class HermesApp : Application(), coil.ImageLoaderFactory {
+
+    override fun newImageLoader(): coil.ImageLoader {
+        val okHttpClient = okhttp3.OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val original = chain.request()
+                val url = original.url.toString()
+                if (url.contains(":8000") || url.contains("/api/files/download") || url.contains("/api/attachments/upload")) {
+                    val token = try { settingsManager.getSessionToken() } catch (e: Exception) { "hermes_mobile_local" }
+                    val newReq = original.newBuilder()
+                        .header("X-Hermes-Session-Token", token)
+                        .header("Authorization", "Bearer $token")
+                        .build()
+                    chain.proceed(newReq)
+                } else {
+                    chain.proceed(original)
+                }
+            }
+            .build()
+
+        return coil.ImageLoader.Builder(this)
+            .okHttpClient(okHttpClient)
+            .crossfade(true)
+            .build()
+    }
 
     lateinit var database: AppDatabase
         private set
-
     lateinit var keystoreManager: KeystoreManager
         private set
-
     lateinit var settingsManager: AppSettingsManager
         private set
 
@@ -40,6 +64,8 @@ class HermesApp : Application() {
     lateinit var updateManager: com.hermes.mobile.domain.update.UpdateManager
         private set
 
+    private val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -57,6 +83,13 @@ class HermesApp : Application() {
             }
         } else {
             importKeystoreMigration()
+        }
+
+        if (settingsManager.fallbackModel.value == "gpt-6-luna") {
+            settingsManager.clearFallbackModel()
+        }
+        if (settingsManager.activeModel.value == "gpt-6-luna") {
+            settingsManager.setActiveModelAndProvider("glm-5.3-flash", "custom:basisweb", "basisweb")
         }
 
         webSocketClient = MobileWebSocketClient(endpointUrl = settingsManager.serverUrl.value)
@@ -98,6 +131,13 @@ class HermesApp : Application() {
             messageDao = database.messageDao()
         )
 
+        // G17 (03 §D10): персист hermesSessionId в Room для конкретного чата
+        webSocketClient.onHermesSessionCreatedForChat = { chatId, sid ->
+            appScope.launch {
+                sessionRepository.updateHermesSessionId(chatId, sid)
+            }
+        }
+
         providerRepository = com.hermes.mobile.domain.repository.ProviderRepositoryImpl(
             restClient = restClient,
             webSocketClient = webSocketClient,
@@ -106,6 +146,45 @@ class HermesApp : Application() {
         )
 
         updateManager = com.hermes.mobile.domain.update.UpdateManager(this)
+
+        registerNetworkCallback()
+    }
+
+    private var networkCallback: android.net.ConnectivityManager.NetworkCallback? = null
+
+    private fun registerNetworkCallback() {
+        try {
+            val connectivityManager = getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return
+            var lastChangeEpoch = 0L
+
+            val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) {
+                    val now = System.currentTimeMillis()
+                    // Дебаунс 800 мс — против шторма событий при одновременном включении/выключении интерфейсов
+                    if (now - lastChangeEpoch < 800L) return
+                    lastChangeEpoch = now
+                    android.util.Log.i("HermesApp", "Network onAvailable: $network -> refreshing connection pools and reconnecting")
+                    appScope.launch {
+                        kotlinx.coroutines.delay(600L) // Небольшая пауза для стабилизации сетевых маршрутов ОС
+                        try {
+                            restClient.evictConnectionPool()
+                        } catch (e: Exception) {
+                            android.util.Log.w("HermesApp", "evictConnectionPool failed: ${e.message}")
+                        }
+                        webSocketClient.reconnect(force = true)
+                    }
+                }
+
+                override fun onLost(network: android.net.Network) {
+                    android.util.Log.i("HermesApp", "Network onLost: $network")
+                }
+            }
+            networkCallback = callback
+            connectivityManager.registerDefaultNetworkCallback(callback)
+            android.util.Log.i("HermesApp", "Default NetworkCallback registered successfully")
+        } catch (e: Exception) {
+            android.util.Log.e("HermesApp", "Failed to register NetworkCallback", e)
+        }
     }
 
     /**
@@ -143,6 +222,19 @@ class HermesApp : Application() {
      */
     override fun onTerminate() {
         android.util.Log.i("HermesApp", "onTerminate: shutting down repositories and WS client")
+        try {
+            networkCallback?.let {
+                val cm = getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                cm?.unregisterNetworkCallback(it)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("HermesApp", "unregisterNetworkCallback failed: ${e.message}")
+        }
+        try {
+            appScope.cancel()
+        } catch (e: Exception) {
+            android.util.Log.w("HermesApp", "appScope.cancel failed: ${e.message}")
+        }
         try {
             chatRepository.shutdown()
         } catch (e: Exception) {

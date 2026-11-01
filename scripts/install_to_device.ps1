@@ -46,11 +46,13 @@ Write-Host ">>> Target APK: $ApkPath" -ForegroundColor Yellow
 Write-Host ">>> Target Package: $PackageName" -ForegroundColor Yellow
 
 Write-Host ">>> [2/4] Installing APK STRICTLY to User 0 (Personal profile only)..." -ForegroundColor Cyan
-& $adb install -r --user 0 $ApkPath
+& $adb install -r -g --user 0 $ApkPath
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Failed to install APK to User 0"
     exit $LASTEXITCODE
 }
+# Автоматическая выдача разрешения RUN_COMMAND для Termux
+& $adb shell pm grant $PackageName com.termux.permission.RUN_COMMAND 2>$null
 
 Write-Host ">>> [3/4] Verifying profile isolation and cleaning up work profile / Island..." -ForegroundColor Cyan
 $usersRaw = & $adb shell pm list users

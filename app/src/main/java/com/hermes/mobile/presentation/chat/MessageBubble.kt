@@ -120,9 +120,15 @@ fun MessageBubble(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         message.attachments.forEach { attach ->
-                            if (attach.mimeType.startsWith("image/") && !attach.dataUrl.isNullOrBlank()) {
+                            val isImage = attach.mimeType.startsWith("image/")
+                            val imageSource = when {
+                                !attach.dataUrl.isNullOrBlank() -> attach.dataUrl
+                                !attach.uriOrPath.isNullOrBlank() -> attach.uriOrPath
+                                else -> ".hermes/attachments/${attach.name}"
+                            }
+                            if (isImage) {
                                 ChatImageCard(
-                                    source = attach.dataUrl,
+                                    source = imageSource,
                                     label = attach.name
                                 )
                             } else {

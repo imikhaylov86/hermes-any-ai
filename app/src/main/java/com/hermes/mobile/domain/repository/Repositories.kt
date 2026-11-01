@@ -30,6 +30,7 @@ interface SessionRepository {
     suspend fun togglePinSession(sessionId: String)
     suspend fun toggleArchiveSession(sessionId: String)
     suspend fun deleteSession(sessionId: String)
+    suspend fun updateHermesSessionId(sessionId: String, hermesSessionId: String?)
 }
 
 interface RuntimeRepository {

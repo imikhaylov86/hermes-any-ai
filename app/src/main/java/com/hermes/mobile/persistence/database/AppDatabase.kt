@@ -81,6 +81,9 @@ interface SessionDao {
     @Query("UPDATE sessions SET isArchived = NOT isArchived WHERE id = :sessionId")
     suspend fun toggleArchive(sessionId: String)
 
+    @Query("UPDATE sessions SET hermesSessionId = :hermesSid WHERE id = :sessionId")
+    suspend fun updateHermesSessionId(sessionId: String, hermesSid: String?)
+
     @Query("DELETE FROM sessions WHERE id = :sessionId")
     suspend fun deleteSession(sessionId: String)
 }
@@ -97,7 +100,13 @@ val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
     }
 }
 
-@Database(entities = [MessageEntity::class, SessionEntity::class], version = 3, exportSchema = false)
+val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE sessions ADD COLUMN hermesSessionId TEXT DEFAULT NULL")
+    }
+}
+
+@Database(entities = [MessageEntity::class, SessionEntity::class], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
     abstract fun sessionDao(): SessionDao
@@ -116,7 +125,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "hermes_mobile_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     // G16 (полевой тест 30.10): старые билды писали base64-dataUrl в
                     // attachmentsJson → SQLiteBlobTooBigException убивал Flow сообщений.
                     // Чистка чисто SQL-ом (строка не помещается в CursorWindow даже при

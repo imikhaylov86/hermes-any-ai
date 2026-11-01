@@ -144,4 +144,8 @@ class SessionRepositoryImpl(
             // Safe ignore remote errors
         }
     }
+
+    override suspend fun updateHermesSessionId(sessionId: String, hermesSessionId: String?) {
+        sessionDao.updateHermesSessionId(sessionId, hermesSessionId)
+    }
 }

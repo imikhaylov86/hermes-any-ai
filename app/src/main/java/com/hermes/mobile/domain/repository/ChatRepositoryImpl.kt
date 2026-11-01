@@ -157,6 +157,20 @@ class ChatRepositoryImpl(
         }
     }
 
+    private fun isApiErrorResponse(text: String): Boolean {
+        if (text.isBlank()) return false
+        val lower = text.lowercase()
+        return lower.contains("api call failed") ||
+                lower.contains("api failed after") ||
+                lower.contains("http 503") ||
+                lower.contains("источник модели временно недоступен") ||
+                lower.contains("internalservererror") ||
+                lower.contains("ratelimiterror") ||
+                lower.contains("authenticationerror") ||
+                text.startsWith("❌") ||
+                text.startsWith("⚠️ API call failed")
+    }
+
     private fun extractThinkingAndContent(raw: String): Pair<String?, String> {
         val thinkRegex = Regex("<think>([\\s\\S]*?)(?:</think>|$)", RegexOption.IGNORE_CASE)
         val match = thinkRegex.find(raw)
@@ -242,16 +256,34 @@ class ChatRepositoryImpl(
                             ?: extractedThinking
                             ?: accumulatedThinking
 
+                        val isApiError = isApiErrorResponse(cleanFinal) || (finalThinking != null && isApiErrorResponse(finalThinking))
+                        val errorDetail = when {
+                            isApiError && cleanFinal.isNotBlank() -> cleanFinal
+                            isApiError && !finalThinking.isNullOrBlank() -> finalThinking
+                            else -> null
+                        }
+
                         val entity = MessageEntity(
                             id = event.messageId,
                             sessionId = event.sessionId,
                             role = MessageRole.ASSISTANT.name,
-                            content = cleanFinal,
-                            thinkingContent = finalThinking?.ifBlank { null },
+                            content = if (isApiError) "" else cleanFinal,
+                            thinkingContent = if (isApiError) null else finalThinking?.ifBlank { null },
                             timestampEpochMs = System.currentTimeMillis(),
-                            status = MessageStatus.COMPLETE.name
+                            status = if (isApiError) MessageStatus.ERROR.name else MessageStatus.COMPLETE.name,
+                            errorMessage = errorDetail
                         )
                         messageDao.insertMessage(entity)
+
+                        if (isApiError) {
+                            android.util.Log.w("ChatRepository", "Detected API error (503/retries failed) in Complete event: $errorDetail")
+                            try {
+                                sessionDao?.updateHermesSessionId(event.sessionId, null)
+                                webSocketClient.switchSession(event.sessionId, null)
+                            } catch (e: Exception) {
+                                android.util.Log.w("ChatRepository", "Failed to reset hermesSessionId after API error: ${e.message}")
+                            }
+                        }
                     }
                     is WebSocketIncomingEvent.Approval -> {
                         _pendingApprovals.update { it + event.request }
@@ -265,7 +297,21 @@ class ChatRepositoryImpl(
                         val fbProvider = settingsManager?.fallbackProvider?.value
                         val activeModel = settingsManager?.activeModel?.value ?: ""
 
-                        if (!fbModel.isNullOrBlank() && fbModel != activeModel) {
+                        // Fallback на резервную модель допустим ТОЛЬКО при ошибках самой модели (квота, ключ, rate limit),
+                        // но ЗАПРЕЩЕН при статусах сессии агента (session busy, expired, interrupt, RPC ошибки)!
+                        val isSessionStateError = event.code in listOf("4001", "4009") ||
+                                event.message.contains("busy", ignoreCase = true) ||
+                                event.message.contains("session", ignoreCase = true)
+
+                        val isModelFailure = (event.message.contains("model", ignoreCase = true) ||
+                                event.message.contains("quota", ignoreCase = true) ||
+                                event.message.contains("billing", ignoreCase = true) ||
+                                event.message.contains("rate limit", ignoreCase = true) ||
+                                event.message.contains("unauthorized", ignoreCase = true) ||
+                                event.message.contains("api key", ignoreCase = true) ||
+                                event.code in listOf("401", "402", "403", "429", "503")) && !isSessionStateError
+
+                        if (isModelFailure && !fbModel.isNullOrBlank() && fbModel != activeModel) {
                             val notice = MessageEntity(
                                 id = "fb_notice_${System.currentTimeMillis()}",
                                 sessionId = activeSessId,
@@ -417,6 +463,45 @@ class ChatRepositoryImpl(
                 dataUrl = it.dataUrl
             )
         }
+
+        // G15 (03 §D11 п.1): загрузка вложений пользователя в Termux через REST
+        // перед отправкой промпта по WS
+        if (attachments.isNotEmpty() && !settingsManager.isDemoMode.value) {
+            scope.launch {
+                for (att in attachments) {
+                    val dUrl = att.dataUrl
+                    if (!dUrl.isNullOrBlank()) {
+                        val client = restClient
+                        if (client != null) {
+                            val uploadRes = client.uploadAttachment(att.name, dUrl)
+                            if (uploadRes.isFailure) {
+                                val errMsg = uploadRes.exceptionOrNull()?.message ?: "Не удалось загрузить файл"
+                                val errEntity = MessageEntity(
+                                    id = "err_att_${System.currentTimeMillis()}",
+                                    sessionId = sessionId,
+                                    role = MessageRole.SYSTEM.name,
+                                    content = "⚠️ Ошибка загрузки файла ${att.name}: $errMsg",
+                                    timestampEpochMs = System.currentTimeMillis(),
+                                    status = MessageStatus.ERROR.name,
+                                    errorMessage = errMsg
+                                )
+                                messageDao.insertMessage(errEntity)
+                                return@launch
+                            }
+                        }
+                    }
+                }
+                val assistantMsgId = "msg_asst_${System.currentTimeMillis()}"
+                webSocketClient.sendMessage(
+                    messageId = assistantMsgId,
+                    sessionId = sessionId,
+                    content = content,
+                    attachments = attachDtos
+                )
+            }
+            return
+        }
+
         val assistantMsgId = "msg_asst_${System.currentTimeMillis()}"
         webSocketClient.sendMessage(
             messageId = assistantMsgId,
@@ -619,6 +704,15 @@ class ChatRepositoryImpl(
         // Удаляем неудавшееся сообщение ассистента с ошибкой, чтобы не дублировать
         if (targetMsg != null && targetMsg.role == MessageRole.ASSISTANT && targetMsg.status == MessageStatus.ERROR) {
             messageDao.deleteMessage(targetMsg.id)
+        }
+
+        // Сбрасываем старую серверную сессию для этого чата, чтобы повторная попытка
+        // создала чистую сессию на демоне без зависшего/поломанного контекста
+        try {
+            sessionDao?.updateHermesSessionId(sessionId, null)
+            webSocketClient.switchSession(sessionId, null)
+        } catch (e: Exception) {
+            android.util.Log.w("ChatRepository", "retryTurn reset session failed: ${e.message}")
         }
 
         if (userMsg != null) {

@@ -82,7 +82,8 @@ data class SessionEntity(
     val model: String,
     val isPinned: Boolean,
     val isArchived: Boolean,
-    val lastMessagePreview: String
+    val lastMessagePreview: String,
+    val hermesSessionId: String? = null
 ) {
     fun toDomain(): SessionInfo {
         return SessionInfo(
@@ -93,7 +94,8 @@ data class SessionEntity(
             model = model,
             isPinned = isPinned,
             isArchived = isArchived,
-            lastMessagePreview = lastMessagePreview
+            lastMessagePreview = lastMessagePreview,
+            hermesSessionId = hermesSessionId
         )
     }
 
@@ -107,7 +109,8 @@ data class SessionEntity(
                 model = session.model,
                 isPinned = session.isPinned,
                 isArchived = session.isArchived,
-                lastMessagePreview = session.lastMessagePreview
+                lastMessagePreview = session.lastMessagePreview,
+                hermesSessionId = session.hermesSessionId
             )
         }
     }

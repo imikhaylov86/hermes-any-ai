@@ -12,7 +12,10 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -64,6 +67,18 @@ class DashboardRestClient(
         .readTimeout(5, TimeUnit.SECONDS)
         .callTimeout(6, TimeUnit.SECONDS)
         .build()
+
+    /**
+     * Сбрасывает connection pool OkHttp при смене сети, чтобы исключить зависшие сокеты
+     * старого интерфейса (Wi-Fi <-> Cellular).
+     */
+    fun evictConnectionPool() {
+        try {
+            client.connectionPool.evictAll()
+            probeClient.connectionPool.evictAll()
+        } catch (_: Exception) {
+        }
+    }
 
     /**
      * Демон отдаёт SPA HTML (код 200) на несуществующие маршруты — из-за этого
@@ -831,6 +846,37 @@ class DashboardRestClient(
                 tokensUsed = 0,
                 errorMessage = e.localizedMessage ?: "Сбой соединения с моделью"
             )
+        }
+    }
+
+    /**
+     * G15 (03 §D11 п.1): загрузка вложения пользователя на локальный демон через REST.
+     * Сохраняет файл в ~/.hermes/attachments/<name> и возвращает относительный путь
+     * для последующего использования в промпте @file:.hermes/attachments/<name>.
+     */
+    suspend fun uploadAttachment(name: String, dataUrl: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val jsonPayload = buildJsonObject {
+                put("name", name)
+                put("data_url", dataUrl)
+            }.toString()
+
+            val body = jsonPayload.toRequestBody("application/json; charset=utf-8".toMediaType())
+            val request = newRequestBuilder("/attachments/upload")
+                .post(body)
+                .build()
+
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    return@withContext Result.failure(Exception("Upload failed with HTTP ${resp.code}: ${resp.message}"))
+                }
+                val respBody = resp.body?.string() ?: ""
+                val root = json.parseToJsonElement(respBody).jsonObject
+                val path = root["path"]?.jsonPrimitive?.contentOrNull ?: ".hermes/attachments/$name"
+                Result.success(path)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 }

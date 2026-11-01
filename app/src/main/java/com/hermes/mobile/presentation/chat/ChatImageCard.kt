@@ -56,7 +56,7 @@ sealed class ContentBlock {
 }
 
 private val COMBINED_IMAGE_REGEX = Regex(
-    """(!?\[([^\]]*?)\]\(\s*([^\s)]+)\s*\))|(?<=^|[\s\n])((?:https?://|/(?:data|sdcard|storage)/|[a-zA-Z0-9_\-\./]*hermes-media/)[^\s\n()]+\.(?:png|jpg|jpeg|webp|gif|bmp|svg))(?=$|[\s\n])""",
+    """(!?\[([^\]]*?)\]\(\s*([^\s)]+)\s*\))|(?:MEDIA:\s*([^\s\n()]+))|(?<=^|[\s\n])((?:https?://|/(?:data|sdcard|storage)/|[a-zA-Z0-9_\-\./]*hermes-media/)[^\s\n()]+\.(?:png|jpg|jpeg|webp|gif|bmp|svg))(?=$|[\s\n])""",
     RegexOption.IGNORE_CASE
 )
 
@@ -66,7 +66,8 @@ fun isImageTarget(path: String): Boolean {
     return extensions.any { clean.endsWith(it) } ||
            clean.contains("hermes-media") ||
            clean.startsWith("data:image/") ||
-           clean.contains("/api/files/download")
+           clean.contains("/api/files/download") ||
+           path.startsWith("MEDIA:", ignoreCase = true)
 }
 
 fun parseMessageContent(content: String): List<ContentBlock> {
@@ -95,7 +96,8 @@ private fun parseImagesFromText(text: String): List<ContentBlock> {
 
     for (match in matches) {
         val markdownGroup = match.groups[1]
-        val standaloneGroup = match.groups[4]
+        val mediaGroup = match.groups[4]
+        val standaloneGroup = match.groups[5]
 
         val (target, label) = if (markdownGroup != null) {
             val lbl = match.groups[2]?.value?.trim()
@@ -105,6 +107,9 @@ private fun parseImagesFromText(text: String): List<ContentBlock> {
             } else {
                 null to null
             }
+        } else if (mediaGroup != null) {
+            val tgt = mediaGroup.value.trim()
+            tgt to null
         } else if (standaloneGroup != null) {
             val tgt = standaloneGroup.value.trim()
             tgt to null
@@ -136,8 +141,36 @@ private fun parseImagesFromText(text: String): List<ContentBlock> {
     return blocks
 }
 
-fun resolveImageModel(source: String): Any {
-    val cleanSource = source.trim().trim('(', ')')
+fun resolveImageModel(source: String, label: String? = null, context: Context? = null): Any {
+    val cleanSource = source.trim().trim('(', ')').removePrefix("MEDIA:").trim()
+
+    // 0. Android content:// or file:// URI (локальные вложения с устройства)
+    if (cleanSource.startsWith("file://")) {
+        return android.net.Uri.parse(cleanSource)
+    }
+
+    if (cleanSource.startsWith("content://")) {
+        val uri = android.net.Uri.parse(cleanSource)
+        val isAccessible = if (context != null) {
+            try {
+                context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { true } ?: false
+            } catch (e: Exception) {
+                false
+            }
+        } else false
+
+        if (isAccessible) {
+            return uri
+        }
+
+        // Fallback: системный content:// URI аннулирован Android после перезапуска процесса.
+        // Загружаем этот же файл из локального хранилища демона Termux (~/.hermes/attachments/<name>)
+        val fallbackName = label?.trim()?.ifBlank { null }
+            ?: cleanSource.substringAfterLast("/").substringBefore("?")
+        val restUrl = try { HermesApp.instance.settingsManager.getRestUrl() } catch (e: Exception) { "http://127.0.0.1:8000/api" }
+        val token = try { HermesApp.instance.settingsManager.getSessionToken() } catch (e: Exception) { "hermes_mobile_local" }
+        return "$restUrl/files/download?path=.hermes/attachments/$fallbackName&token=$token"
+    }
 
     // 1. Data URL
     if (cleanSource.startsWith("data:image/")) {
@@ -160,8 +193,8 @@ fun resolveImageModel(source: String): Any {
         return cleanSource
     }
 
-    // 3. Accessible shared storage (/sdcard or /storage/emulated/0)
-    if (cleanSource.startsWith("/sdcard/") || cleanSource.startsWith("/storage/")) {
+    // 3. Локальные файлы на устройстве (песочница приложения /sdcard/ /data/...)
+    if (cleanSource.startsWith("/")) {
         val file = File(cleanSource)
         if (file.exists() && file.canRead()) {
             return file
@@ -189,8 +222,14 @@ suspend fun saveImageToGallery(context: Context, model: Any, displayName: String
             is File -> {
                 if (model.exists() && model.canRead()) model.readBytes() else return@withContext false
             }
+            is android.net.Uri -> {
+                context.contentResolver.openInputStream(model)?.use { it.readBytes() } ?: return@withContext false
+            }
             is String -> {
-                if (model.startsWith("http://") || model.startsWith("https://")) {
+                if (model.startsWith("content://") || model.startsWith("file://")) {
+                    val u = android.net.Uri.parse(model)
+                    context.contentResolver.openInputStream(u)?.use { it.readBytes() } ?: return@withContext false
+                } else if (model.startsWith("http://") || model.startsWith("https://")) {
                     val token = try { HermesApp.instance.settingsManager.getSessionToken() } catch (e: Exception) { "hermes_mobile_local" }
                     val client = OkHttpClient.Builder()
                         .connectTimeout(15, TimeUnit.SECONDS)
@@ -290,7 +329,7 @@ fun ChatImageCard(
     var showFullscreen by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
 
-    val resolvedModel = remember(source) { resolveImageModel(source) }
+    val resolvedModel = remember(source, label) { resolveImageModel(source, label, context) }
     val appStrings = strings
 
     val displayName = remember(source, label) {
@@ -329,10 +368,13 @@ fun ChatImageCard(
             .background(Color.Black.copy(alpha = 0.25f))
             .border(1.dp, Color.White.copy(alpha = 0.12f), AppDimensions.ShapeField)
     ) {
+        val token = try { HermesApp.instance.settingsManager.getSessionToken() } catch (e: Exception) { "hermes_mobile_local" }
         SubcomposeAsyncImage(
             model = ImageRequest.Builder(context)
                 .data(resolvedModel)
                 .crossfade(true)
+                .addHeader("X-Hermes-Session-Token", token)
+                .addHeader("Authorization", "Bearer $token")
                 .build(),
             contentDescription = displayName,
             contentScale = ContentScale.Crop,
@@ -516,6 +558,8 @@ fun ImageFullscreenDialog(
             }
 
             // Полноэкранное изображение в центре
+            val fsContext = LocalContext.current
+            val fsToken = try { HermesApp.instance.settingsManager.getSessionToken() } catch (e: Exception) { "hermes_mobile_local" }
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -524,9 +568,11 @@ fun ImageFullscreenDialog(
                 contentAlignment = Alignment.Center
             ) {
                 SubcomposeAsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
+                    model = ImageRequest.Builder(fsContext)
                         .data(model)
                         .crossfade(true)
+                        .addHeader("X-Hermes-Session-Token", fsToken)
+                        .addHeader("Authorization", "Bearer $fsToken")
                         .build(),
                     contentDescription = title,
                     contentScale = ContentScale.Fit,

@@ -101,6 +101,7 @@ class ChatViewModel(
                 val existing = sessionRepository.getSessionById(savedId)
                 if (existing != null) {
                     _activeSessionId.value = existing.id
+                    webSocketClient.switchSession(existing.id, existing.hermesSessionId)
                     return@launch
                 }
             }
@@ -110,11 +111,13 @@ class ChatViewModel(
             if (latest != null) {
                 _activeSessionId.value = latest.id
                 settingsManager.setLastActiveSessionId(latest.id)
+                webSocketClient.switchSession(latest.id, latest.hermesSessionId)
             } else {
                 // Если база сессий пуста — создаем новую сессию
                 val newSess = sessionRepository.createSession("Новая беседа")
                 _activeSessionId.value = newSess.id
                 settingsManager.setLastActiveSessionId(newSess.id)
+                webSocketClient.switchSession(newSess.id, newSess.hermesSessionId)
             }
         }
     }
@@ -145,7 +148,12 @@ class ChatViewModel(
 
         _activeSessionId.value = sessionId
         settingsManager.setLastActiveSessionId(sessionId)
-        webSocketClient.resetHermesSession()
+
+        // G17 (03 §D10): переключаем серверную сессию на привязанную к этому чату
+        viewModelScope.launch {
+            val target = sessionRepository.getSessionById(sessionId)
+            webSocketClient.switchSession(sessionId, target?.hermesSessionId)
+        }
 
         // Восстанавливаем сохранённый черновик для выбранной сессии
         val draft = sessionDrafts[sessionId]
@@ -240,9 +248,11 @@ class ChatViewModel(
             }
             "reset" -> {
                 inputText.value = ""
+                val currentChatId = _activeSessionId.value
+                webSocketClient.stopGeneration(currentChatId)
                 webSocketClient.resetHermesSession()
                 viewModelScope.launch {
-                    chatRepository.sendMessage(_activeSessionId.value, "/reset")
+                    sessionRepository.updateHermesSessionId(currentChatId, null)
                 }
             }
             else -> {
