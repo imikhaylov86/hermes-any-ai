@@ -38,6 +38,7 @@ data class SessionBackupItem(
     val isPinned: Boolean = false,
     val isArchived: Boolean = false,
     val lastMessagePreview: String = "",
+    val hermesSessionId: String? = null,
     val messages: List<MessageBackupItem> = emptyList()
 )
 
@@ -151,6 +152,7 @@ object ChatBackupManager {
                 isPinned = s.isPinned,
                 isArchived = s.isArchived,
                 lastMessagePreview = s.lastMessagePreview,
+                hermesSessionId = s.hermesSessionId,
                 messages = msgs
             )
         }
@@ -202,7 +204,8 @@ object ChatBackupManager {
                 model = sessionItem.model,
                 isPinned = sessionItem.isPinned,
                 isArchived = sessionItem.isArchived,
-                lastMessagePreview = sessionItem.lastMessagePreview
+                lastMessagePreview = sessionItem.lastMessagePreview,
+                hermesSessionId = sessionItem.hermesSessionId
             )
             sessionDao.insertSession(sessionEntity)
             restoredSessions++
@@ -223,6 +226,18 @@ object ChatBackupManager {
                 }
                 messageDao.insertMessages(messageEntities)
                 restoredMessages += messageEntities.size
+            }
+        }
+
+        // Если были успешно восстановлены реальные сессии — удаляем пустую sess_welcome
+        if (restoredSessions > 0) {
+            try {
+                val welcomeMsgs = messageDao.getMessagesListForSession("sess_welcome")
+                if (welcomeMsgs.isEmpty() && sessionDao.getAllSessionsList().any { it.id != "sess_welcome" }) {
+                    sessionDao.deleteSession("sess_welcome")
+                }
+            } catch (e: Exception) {
+                // Ignore cleanup error
             }
         }
 

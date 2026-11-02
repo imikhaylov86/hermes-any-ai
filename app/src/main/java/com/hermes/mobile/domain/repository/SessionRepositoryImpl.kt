@@ -47,20 +47,32 @@ class SessionRepositoryImpl(
                     sessionDao.insertSession(entity)
                 }
                 settingsManager?.setFirstLaunchDone()
-            } else if (settingsManager?.isFirstLaunch() == true) {
-                // Если сессий нет в БД и это первый запуск, создаем приветственную по умолчанию
-                val defaultSession = SessionEntity(
-                    id = "sess_welcome",
-                    title = "Диалог с Hermes Agent",
-                    createdAtEpochMs = System.currentTimeMillis(),
-                    updatedAtEpochMs = System.currentTimeMillis(),
-                    model = "Hermes 3 (Llama-3.1 8B)",
-                    isPinned = true,
-                    isArchived = false,
-                    lastMessagePreview = "Готов к работе в Termux"
-                )
-                sessionDao.insertSession(defaultSession)
-                settingsManager.setFirstLaunchDone()
+            } else {
+                val localSessions = sessionDao.getAllSessionsList()
+                if (localSessions.isNotEmpty()) {
+                    settingsManager?.setFirstLaunchDone()
+                    // Если есть реальные пользовательские сессии, а sess_welcome пустая — удаляем ее
+                    if (localSessions.any { it.id != "sess_welcome" }) {
+                        val welcomeMsgs = messageDao?.getMessagesListForSession("sess_welcome")
+                        if (welcomeMsgs.isNullOrEmpty()) {
+                            sessionDao.deleteSession("sess_welcome")
+                        }
+                    }
+                } else if (settingsManager?.isFirstLaunch() == true) {
+                    // Если сессий действительно нет в БД и это первый запуск, создаем приветственную по умолчанию
+                    val defaultSession = SessionEntity(
+                        id = "sess_welcome",
+                        title = "Диалог с Hermes Agent",
+                        createdAtEpochMs = System.currentTimeMillis(),
+                        updatedAtEpochMs = System.currentTimeMillis(),
+                        model = "Hermes 3 (Llama-3.1 8B)",
+                        isPinned = false,
+                        isArchived = false,
+                        lastMessagePreview = "Готов к работе в Termux"
+                    )
+                    sessionDao.insertSession(defaultSession)
+                    settingsManager.setFirstLaunchDone()
+                }
             }
 
             // Ретроспективно именуем ранее безымянные сессии по первому сообщению пользователя

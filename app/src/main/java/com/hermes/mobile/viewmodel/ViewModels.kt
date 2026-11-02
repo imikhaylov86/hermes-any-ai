@@ -581,7 +581,7 @@ class ChatViewModel(
                 )
                 val latest = sessionRepository.getLatestSession()
                 if (latest != null) {
-                    _activeSessionId.value = latest.id
+                    selectSession(latest.id)
                 }
                 onResult(true, "Восстановлено $sessionsCount бесед ($messagesCount сообщений)")
             } catch (e: Exception) {

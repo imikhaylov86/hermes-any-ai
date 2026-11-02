@@ -63,7 +63,14 @@ interface SessionDao {
     @Query("SELECT * FROM sessions WHERE id = :sessionId LIMIT 1")
     suspend fun getSessionById(sessionId: String): SessionEntity?
 
-    @Query("SELECT * FROM sessions ORDER BY isPinned DESC, updatedAtEpochMs DESC LIMIT 1")
+    @Query("""
+        SELECT * FROM sessions 
+        ORDER BY 
+            isPinned DESC, 
+            CASE WHEN id = 'sess_welcome' AND (SELECT COUNT(*) FROM messages WHERE sessionId = 'sess_welcome') = 0 THEN 0 ELSE 1 END DESC,
+            updatedAtEpochMs DESC 
+        LIMIT 1
+    """)
     suspend fun getLatestSession(): SessionEntity?
 
     @Query("UPDATE sessions SET title = :newTitle, updatedAtEpochMs = :timestamp WHERE id = :sessionId")

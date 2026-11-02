@@ -33,13 +33,37 @@ data class MessageEntity(
             emptyList()
         }
 
+        val resolvedRole = try {
+            MessageRole.valueOf(role.trim().uppercase())
+        } catch (e: Exception) {
+            when (role.trim().lowercase()) {
+                "user" -> MessageRole.USER
+                "assistant", "bot", "model" -> MessageRole.ASSISTANT
+                "system" -> MessageRole.SYSTEM
+                else -> MessageRole.USER
+            }
+        }
+
+        val resolvedStatus = try {
+            MessageStatus.valueOf(status.trim().uppercase())
+        } catch (e: Exception) {
+            when (status.trim().lowercase()) {
+                "sending" -> MessageStatus.SENDING
+                "sent", "delivered" -> MessageStatus.SENT
+                "streaming" -> MessageStatus.STREAMING
+                "complete", "completed", "done", "success" -> MessageStatus.COMPLETE
+                "error", "failed" -> MessageStatus.ERROR
+                else -> MessageStatus.COMPLETE
+            }
+        }
+
         return ChatMessage(
             id = id,
             sessionId = sessionId,
-            role = MessageRole.valueOf(role),
+            role = resolvedRole,
             content = content,
             timestampEpochMs = timestampEpochMs,
-            status = MessageStatus.valueOf(status),
+            status = resolvedStatus,
             attachments = parsedAttachments,
             errorMessage = errorMessage,
             thinkingContent = thinkingContent

@@ -100,6 +100,7 @@ class MobileWebSocketClient(
     private var currentMessageId: String? = null
     private var currentSessionId: String? = null
     private var hermesSessionId: String? = null
+    private val chatToServerSessionMap = java.util.concurrent.ConcurrentHashMap<String, String>()
     private var activeStreamSequence: Int = 0
     private var pendingPromptText: String? = null
     private var pendingPromptAttachments: List<AttachmentDto> = emptyList()
@@ -385,28 +386,43 @@ class MobileWebSocketClient(
      * G4 (03 §D9г): восстановление серверной сессии при onOpen вместо
      * безусловного session.create. Вызывается composition root'ом до connect().
      */
-    fun restoreHermesSession(sessionId: String?) {
+    fun restoreHermesSession(sessionId: String?, chatId: String? = null) {
         if (!sessionId.isNullOrBlank()) {
             hermesSessionId = sessionId
-            Log.i(tag, "Restored hermes session for resume: ${sessionId.take(8)}…")
+            if (!chatId.isNullOrBlank()) {
+                chatToServerSessionMap[chatId] = sessionId
+            }
+            Log.i(tag, "Restored hermes session for resume: ${sessionId.take(8)}… (chat: $chatId)")
         }
     }
 
     /** Текущий серверный идентификатор сессии (для персиста из репозитория). */
-    fun currentHermesSessionId(): String? = hermesSessionId
+    fun currentHermesSessionId(chatId: String? = null): String? {
+        return if (!chatId.isNullOrBlank()) {
+            chatToServerSessionMap[chatId]
+        } else {
+            currentSessionId?.let { chatToServerSessionMap[it] } ?: hermesSessionId
+        }
+    }
 
     /**
      * G17 (03 §D10): переключение активного чата без сброса серверной сессии.
-     * Если у чата уже есть сохранённый hermesSessionId, переключаемся на него;
-     * если нет — hermesSessionId сбрасывается в null, и при первой отправке будет создан session.create.
+     * Привязываем чат к его hermesSessionId, резюмируя его на сервере.
+     * Если у чата ещё нет серверной сессии — отправляем session.create.
      */
     fun switchSession(sessionId: String, hermesSid: String?) {
         currentSessionId = sessionId
-        hermesSessionId = hermesSid
-        Log.i(tag, "Switched session to chat=$sessionId, hermesSessionId=${hermesSid?.take(8) ?: "null"}")
+        if (!hermesSid.isNullOrBlank()) {
+            chatToServerSessionMap[sessionId] = hermesSid
+            hermesSessionId = hermesSid
+        } else {
+            hermesSessionId = chatToServerSessionMap[sessionId]
+        }
+        val targetSid = hermesSessionId
+        Log.i(tag, "Switched session to chat=$sessionId, hermesSessionId=${targetSid?.take(8) ?: "null"}")
         if (webSocket != null && endpointUrl.contains("/api/ws")) {
-            if (hermesSid != null) {
-                sendSessionResume(hermesSid)
+            if (targetSid != null) {
+                sendSessionResume(targetSid)
             } else {
                 sendSessionCreate()
             }
@@ -469,6 +485,7 @@ class MobileWebSocketClient(
                             Log.w(tag, "Hermes session expired/not found on daemon (code $errCode). Performing automatic fallback & creation...")
                             val targetChat = currentSessionId ?: "sess_main"
                             hermesSessionId = null
+                            chatToServerSessionMap.remove(targetChat)
                             onHermesSessionCreatedForChat?.invoke(targetChat, null)
 
                             val retryContent = lastSubmittedPromptText
@@ -521,25 +538,29 @@ class MobileWebSocketClient(
                         }
                     }
 
-                    // Проверяем результат вызова session.create
+                    // Проверяем результат вызова session.create или session.resume
                     if (root.containsKey("result")) {
-                        val resultObj = root["result"]?.jsonObject
+                        val resultElement = root["result"]
+                        val resultObj = resultElement as? JsonObject
                         val newSid = resultObj?.get("session_id")?.jsonPrimitive?.contentOrNull
-                        if (newSid != null) {
-                            hermesSessionId = newSid
-                            val targetChat = currentSessionId ?: "sess_main"
-                            onHermesSessionCreatedForChat?.invoke(targetChat, newSid)
+                        val targetChat = currentSessionId ?: "sess_main"
+                        val effectiveSid = newSid ?: hermesSessionId ?: chatToServerSessionMap[targetChat]
+                        if (effectiveSid != null) {
+                            hermesSessionId = effectiveSid
+                            chatToServerSessionMap[targetChat] = effectiveSid
+                            onHermesSessionCreatedForChat?.invoke(targetChat, effectiveSid)
                             // G4 (03 §D9г): персист для resume при будущих reconnect
-                            onHermesSessionEstablished?.invoke(newSid)
-                            _connectionState.value = ConnectionState.READY
-                            _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = newSid, activeModel = activeModel ?: ""))
-                            val pending = pendingPromptText
-                            val pendingAtt = pendingPromptAttachments
-                            if (pending != null || pendingAtt.isNotEmpty()) {
-                                pendingPromptText = null
-                                pendingPromptAttachments = emptyList()
-                                submitPromptRpc(newSid, pending ?: "", pendingAtt)
-                            }
+                            onHermesSessionEstablished?.invoke(effectiveSid)
+                        }
+                        _connectionState.value = ConnectionState.READY
+                        _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = effectiveSid ?: "", activeModel = activeModel ?: ""))
+                        val pending = pendingPromptText
+                        val pendingAtt = pendingPromptAttachments
+                        if (pending != null || pendingAtt.isNotEmpty()) {
+                            pendingPromptText = null
+                            pendingPromptAttachments = emptyList()
+                            val sendSid = effectiveSid ?: targetChat
+                            submitPromptRpc(sendSid, pending ?: "", pendingAtt)
                         }
                         return@launch
                     }
@@ -556,16 +577,18 @@ class MobileWebSocketClient(
                                 _connectionState.value = ConnectionState.READY
                                 _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = "", activeModel = ""))
                             }
-                            "session.created" -> {
+                            "session.created", "session.resumed" -> {
                                 val sid = payload?.get("session_id")?.jsonPrimitive?.contentOrNull
-                                if (sid != null) {
-                                    hermesSessionId = sid
-                                    val targetChat = currentSessionId ?: "sess_main"
-                                    onHermesSessionCreatedForChat?.invoke(targetChat, sid)
-                                    onHermesSessionEstablished?.invoke(sid)
+                                val targetChat = currentSessionId ?: "sess_main"
+                                val effectiveSid = sid ?: hermesSessionId ?: chatToServerSessionMap[targetChat]
+                                if (effectiveSid != null) {
+                                    hermesSessionId = effectiveSid
+                                    chatToServerSessionMap[targetChat] = effectiveSid
+                                    onHermesSessionCreatedForChat?.invoke(targetChat, effectiveSid)
+                                    onHermesSessionEstablished?.invoke(effectiveSid)
                                 }
                                 _connectionState.value = ConnectionState.READY
-                                _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = sid ?: "", activeModel = activeModel ?: ""))
+                                _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = effectiveSid ?: "", activeModel = activeModel ?: ""))
                             }
                             "message.start" -> {
                                 if (_connectionState.value != ConnectionState.READY) {
@@ -796,7 +819,7 @@ class MobileWebSocketClient(
         lastAppliedSequence.remove(messageId)
 
         if (endpointUrl.contains("/api/ws")) {
-            val sid = hermesSessionId
+            val sid = chatToServerSessionMap[sessionId] ?: hermesSessionId
             if (sid != null) {
                 submitPromptRpc(sid, content, attachments)
             } else {
@@ -827,7 +850,7 @@ class MobileWebSocketClient(
         currentMessageId?.let { stoppedMessageIds.add(it) }
 
         if (endpointUrl.contains("/api/ws")) {
-            val sid = hermesSessionId ?: sessionId
+            val sid = chatToServerSessionMap[sessionId] ?: hermesSessionId ?: sessionId
             val rpcInterrupt = buildJsonObject {
                 put("jsonrpc", "2.0")
                 put("id", rpcCounter++)
@@ -875,7 +898,7 @@ class MobileWebSocketClient(
 
     fun respondToClarify(promptId: String, sessionId: String, answer: String) {
         if (endpointUrl.contains("/api/ws")) {
-            val sid = hermesSessionId ?: sessionId
+            val sid = chatToServerSessionMap[sessionId] ?: hermesSessionId ?: sessionId
             submitPromptRpc(sid, answer)
         } else {
             val dto = ClarifyResponseDto(
@@ -902,8 +925,9 @@ class MobileWebSocketClient(
     }
 
     fun resetHermesSession() {
-        hermesSessionId = null
         val currentChat = currentSessionId ?: "sess_main"
+        chatToServerSessionMap.remove(currentChat)
+        hermesSessionId = null
         onHermesSessionCreatedForChat?.invoke(currentChat, null)
         if (_connectionState.value == ConnectionState.READY) {
             sendSessionCreate()

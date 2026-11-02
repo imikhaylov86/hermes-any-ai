@@ -97,6 +97,15 @@ class HermesApp : Application(), coil.ImageLoaderFactory {
         webSocketClient.updateSessionToken(settingsManager.getSessionToken())
         // G4 (03 §D9г): восстановление серверной сессии для resume при onOpen
         webSocketClient.restoreHermesSession(settingsManager.hermesSessionId.value)
+        val lastChatId = settingsManager.getLastActiveSessionId()
+        if (!lastChatId.isNullOrBlank()) {
+            appScope.launch {
+                val lastSession = database.sessionDao().getSessionById(lastChatId)
+                if (!lastSession?.hermesSessionId.isNullOrBlank()) {
+                    webSocketClient.restoreHermesSession(lastSession!!.hermesSessionId, lastChatId)
+                }
+            }
+        }
         webSocketClient.setActiveModel(settingsManager.activeModel.value, settingsManager.activeProvider.value)
 
         restClient = DashboardRestClient(
