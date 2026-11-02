@@ -77,6 +77,15 @@ class MainActivity : ComponentActivity() {
                 val diagnosticsReport by chatViewModel.diagnosticsReport.collectAsState()
                 val isDiagnosticsRunning by chatViewModel.isDiagnosticsRunning.collectAsState()
                 val updateState by chatViewModel.updateState.collectAsState()
+                val keepScreenOn by chatViewModel.keepScreenOn.collectAsState()
+
+                LaunchedEffect(keepScreenOn) {
+                    if (keepScreenOn) {
+                        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    } else {
+                        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                }
 
                 LaunchedEffect(Unit) {
                     chatViewModel.checkForUpdates(isManual = false)
@@ -157,6 +166,8 @@ class MainActivity : ComponentActivity() {
                         onToggleDebugKeysExport = { enabled ->
                             chatViewModel.setDebugKeysExportEnabled(enabled)
                         },
+                        keepScreenOn = keepScreenOn,
+                        onToggleKeepScreenOn = { enabled -> chatViewModel.setKeepScreenOn(enabled) },
                         currentLanguage = appLanguage,
                         onSelectLanguage = { lang -> chatViewModel.setAppLanguage(lang) },
                         onDismiss = { showSettingsDialogFromDrawer = false }

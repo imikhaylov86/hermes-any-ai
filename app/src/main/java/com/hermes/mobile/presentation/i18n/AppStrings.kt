@@ -109,6 +109,8 @@ interface AppStrings {
     val connectionParamsAccordion: String
     val demoModeSwitch: String
     val demoModeDesc: String
+    val keepScreenOnTitle: String
+    val keepScreenOnDesc: String
     val debugKeysExportSwitch: String
     val debugKeysExportDesc: String
     val agentWsUrlLabel: String
@@ -442,6 +444,8 @@ class RuAppStrings : AppStrings {
     override val connectionParamsAccordion = "Параметры соединения"
     override val demoModeSwitch = "Автономный Демо-режим"
     override val demoModeDesc = "Оффлайн эмуляция агента без Termux"
+    override val keepScreenOnTitle = "Не гасить экран"
+    override val keepScreenOnDesc = "Экран остаётся включённым, пока открыто приложение"
     override val debugKeysExportSwitch = "Экспорт ключей (для разработки)"
     override val debugKeysExportDesc = "Сохраняет ключи в файл для переноса между сборками. Применится при следующем запуске."
     override val agentWsUrlLabel = "WebSocket URL агента:"
@@ -768,6 +772,8 @@ class EnAppStrings : AppStrings {
     override val connectionParamsAccordion = "Connection Parameters"
     override val demoModeSwitch = "Autonomous Demo Mode"
     override val demoModeDesc = "Offline agent emulation without Termux"
+    override val keepScreenOnTitle = "Keep Screen On"
+    override val keepScreenOnDesc = "Prevent screen from turning off while app is open"
     override val debugKeysExportSwitch = "Export keys (development)"
     override val debugKeysExportDesc = "Saves keys to a file to transfer between builds. Applied on next app start."
     override val agentWsUrlLabel = "Agent WebSocket URL:"

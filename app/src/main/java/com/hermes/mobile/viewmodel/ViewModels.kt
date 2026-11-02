@@ -44,7 +44,12 @@ class ChatViewModel(
     val fallbackModel: StateFlow<String> = settingsManager.fallbackModel
     val fallbackProvider: StateFlow<String> = settingsManager.fallbackProvider
     val fallbackProviderName: StateFlow<String> = settingsManager.fallbackProviderName
+    val keepScreenOn: StateFlow<Boolean> = settingsManager.keepScreenOn
     val serverUrl: StateFlow<String> = settingsManager.serverUrl
+
+    fun setKeepScreenOn(enabled: Boolean) {
+        settingsManager.setKeepScreenOn(enabled)
+    }
 
     fun setFallbackModel(providerId: String, model: String) {
         val provider = providers.value.find { it.id == providerId }

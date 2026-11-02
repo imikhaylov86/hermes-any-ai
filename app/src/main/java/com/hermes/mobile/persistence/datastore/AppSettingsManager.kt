@@ -125,6 +125,11 @@ class AppSettingsManager(context: Context) {
     )
     val appLanguage: StateFlow<String> = _appLanguage.asStateFlow()
 
+    private val _keepScreenOn = MutableStateFlow(
+        prefs.getBoolean(KEY_KEEP_SCREEN_ON, true)
+    )
+    val keepScreenOn: StateFlow<Boolean> = _keepScreenOn.asStateFlow()
+
     private val _deletedProviderIds = MutableStateFlow(
         prefs.getStringSet(KEY_DELETED_PROVIDERS, emptySet()) ?: emptySet()
     )
@@ -247,6 +252,11 @@ class AppSettingsManager(context: Context) {
     fun setDemoMode(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_DEMO_MODE, enabled).apply()
         _isDemoMode.value = enabled
+    }
+
+    fun setKeepScreenOn(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_KEEP_SCREEN_ON, enabled).apply()
+        _keepScreenOn.value = enabled
     }
 
     fun setActiveModel(model: String) {
@@ -373,5 +383,6 @@ class AppSettingsManager(context: Context) {
         private const val KEY_APP_LANGUAGE = "key_app_language"
         private const val KEY_DEBUG_KEYS_EXPORT = "key_debug_keys_export"
         private const val KEY_DELETED_PROVIDERS = "key_deleted_providers"
+        private const val KEY_KEEP_SCREEN_ON = "key_keep_screen_on"
     }
 }

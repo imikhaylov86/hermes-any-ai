@@ -54,10 +54,13 @@ fun SettingsDialog(
     onCheckForUpdates: () -> Unit = {},
     isDebugKeysExportEnabled: Boolean = false,
     onToggleDebugKeysExport: (Boolean) -> Unit = {},
+    keepScreenOn: Boolean = true,
+    onToggleKeepScreenOn: (Boolean) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     var urlText by remember { mutableStateOf(currentServerUrl) }
     var demoEnabled by remember { mutableStateOf(isDemoMode) }
+    var screenOnEnabled by remember(keepScreenOn) { mutableStateOf(keepScreenOn) }
     var isAdvancedExpanded by remember { mutableStateOf(false) }
     val appStrings = strings
 
@@ -186,6 +189,51 @@ fun SettingsDialog(
                                 shape = AppDimensions.ShapeChip
                             )
                         }
+                    }
+                }
+
+                // Управление экраном: не давать гаснуть экрану
+                Surface(
+                    shape = AppDimensions.ShapeCard,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.BrightnessMedium,
+                                contentDescription = null,
+                                tint = PrimaryIndigo,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = strings.keepScreenOnTitle,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = strings.keepScreenOnDesc,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = screenOnEnabled,
+                            onCheckedChange = {
+                                screenOnEnabled = it
+                                onToggleKeepScreenOn(it)
+                            }
+                        )
                     }
                 }
 
