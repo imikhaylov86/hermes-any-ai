@@ -64,9 +64,9 @@ fun ProviderBottomSheet(
 
     fun isSameProvider(prov: ProviderConfig, targetId: String): Boolean {
         if (targetId.isBlank()) return false
-        val cleanTarget = targetId.removePrefix("custom_").trim().lowercase()
-        val cleanId = prov.id.removePrefix("custom_").trim().lowercase()
-        val cleanName = prov.name.trim().lowercase()
+        val cleanTarget = targetId.removePrefix("custom:").removePrefix("custom_").trim().lowercase()
+        val cleanId = prov.id.removePrefix("custom:").removePrefix("custom_").trim().lowercase()
+        val cleanName = prov.name.removePrefix("custom:").removePrefix("custom_").trim().lowercase()
         return cleanId == cleanTarget || cleanName == cleanTarget ||
                 prov.id.equals(targetId, ignoreCase = true) ||
                 prov.name.equals(targetId, ignoreCase = true)

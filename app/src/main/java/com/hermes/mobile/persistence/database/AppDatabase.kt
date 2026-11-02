@@ -44,6 +44,9 @@ interface MessageDao {
 
     @Query("DELETE FROM messages WHERE id = :messageId")
     suspend fun deleteMessage(messageId: String)
+
+    @Query("DELETE FROM messages WHERE sessionId IN (:sessionIds)")
+    suspend fun deleteMessagesForSessions(sessionIds: List<String>)
 }
 
 @Dao
@@ -62,6 +65,9 @@ interface SessionDao {
 
     @Query("SELECT * FROM sessions WHERE id = :sessionId LIMIT 1")
     suspend fun getSessionById(sessionId: String): SessionEntity?
+
+    @Query("SELECT * FROM sessions WHERE id = :sessionId LIMIT 1")
+    fun getSessionByIdFlow(sessionId: String): Flow<SessionEntity?>
 
     @Query("""
         SELECT * FROM sessions 
@@ -88,11 +94,50 @@ interface SessionDao {
     @Query("UPDATE sessions SET isArchived = NOT isArchived WHERE id = :sessionId")
     suspend fun toggleArchive(sessionId: String)
 
+    @Query("UPDATE sessions SET isArchived = :isArchived, updatedAtEpochMs = :timestamp WHERE id = :sessionId")
+    suspend fun setArchived(sessionId: String, isArchived: Boolean, timestamp: Long)
+
+    @Query("UPDATE sessions SET isArchived = :isArchived, updatedAtEpochMs = :timestamp WHERE id IN (:sessionIds)")
+    suspend fun setArchivedBatch(sessionIds: List<String>, isArchived: Boolean, timestamp: Long)
+
+    @Query("SELECT * FROM sessions WHERE isArchived = 1 ORDER BY updatedAtEpochMs DESC")
+    fun getArchivedSessions(): Flow<List<SessionEntity>>
+
+    @Query("SELECT * FROM sessions WHERE isArchived = 0 OR isArchived IS NULL ORDER BY isPinned DESC, updatedAtEpochMs DESC")
+    fun getActiveSessions(): Flow<List<SessionEntity>>
+
+    @Query("SELECT COUNT(*) FROM sessions WHERE isArchived = 1")
+    fun getArchivedCount(): Flow<Int>
+
     @Query("UPDATE sessions SET hermesSessionId = :hermesSid WHERE id = :sessionId")
     suspend fun updateHermesSessionId(sessionId: String, hermesSid: String?)
 
     @Query("DELETE FROM sessions WHERE id = :sessionId")
     suspend fun deleteSession(sessionId: String)
+
+    @Query("DELETE FROM sessions WHERE id IN (:sessionIds)")
+    suspend fun deleteSessions(sessionIds: List<String>)
+}
+
+@Dao
+interface ArchivedSessionPayloadDao {
+    @Query("SELECT * FROM archived_session_payloads WHERE sessionId = :sessionId LIMIT 1")
+    suspend fun getPayload(sessionId: String): ArchivedSessionPayloadEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPayload(payload: ArchivedSessionPayloadEntity)
+
+    @Query("DELETE FROM archived_session_payloads WHERE sessionId = :sessionId")
+    suspend fun deletePayload(sessionId: String)
+
+    @Query("DELETE FROM archived_session_payloads WHERE sessionId IN (:sessionIds)")
+    suspend fun deletePayloads(sessionIds: List<String>)
+
+    @Query("SELECT SUM(compressedSizeBytes) FROM archived_session_payloads")
+    fun getTotalCompressedBytes(): Flow<Long?>
+
+    @Query("SELECT SUM(originalSizeBytes) FROM archived_session_payloads")
+    fun getTotalOriginalBytes(): Flow<Long?>
 }
 
 val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
@@ -113,10 +158,29 @@ val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
     }
 }
 
-@Database(entities = [MessageEntity::class, SessionEntity::class], version = 4, exportSchema = false)
+val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
+    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS archived_session_payloads (
+                sessionId TEXT NOT NULL PRIMARY KEY,
+                messageCount INTEGER NOT NULL,
+                originalSizeBytes INTEGER NOT NULL,
+                compressedSizeBytes INTEGER NOT NULL,
+                compressedPayload BLOB NOT NULL,
+                archivedAtEpochMs INTEGER NOT NULL,
+                FOREIGN KEY(sessionId) REFERENCES sessions(id) ON DELETE CASCADE
+            )
+        """)
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_archived_session_payloads_sessionId ON archived_session_payloads(sessionId)")
+        db.execSQL("UPDATE sessions SET isArchived = 0 WHERE isArchived IS NULL")
+    }
+}
+
+@Database(entities = [MessageEntity::class, SessionEntity::class, ArchivedSessionPayloadEntity::class], version = 5, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
     abstract fun sessionDao(): SessionDao
+    abstract fun archivedSessionPayloadDao(): ArchivedSessionPayloadDao
 
     companion object {
         @Volatile
@@ -132,7 +196,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "hermes_mobile_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     // G16 (полевой тест 30.10): старые билды писали base64-dataUrl в
                     // attachmentsJson → SQLiteBlobTooBigException убивал Flow сообщений.
                     // Чистка чисто SQL-ом (строка не помещается в CursorWindow даже при

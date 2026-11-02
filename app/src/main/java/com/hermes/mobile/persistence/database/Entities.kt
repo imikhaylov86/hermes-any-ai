@@ -7,9 +7,11 @@ import com.hermes.mobile.domain.model.ChatMessage
 import com.hermes.mobile.domain.model.MessageRole
 import com.hermes.mobile.domain.model.MessageStatus
 import com.hermes.mobile.domain.model.SessionInfo
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
+@Serializable
 @Entity(tableName = "messages")
 data class MessageEntity(
     @PrimaryKey val id: String,
@@ -137,5 +139,52 @@ data class SessionEntity(
                 hermesSessionId = session.hermesSessionId
             )
         }
+    }
+}
+
+@Entity(
+    tableName = "archived_session_payloads",
+    foreignKeys = [
+        androidx.room.ForeignKey(
+            entity = SessionEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["sessionId"],
+            onDelete = androidx.room.ForeignKey.CASCADE
+        )
+    ],
+    indices = [androidx.room.Index("sessionId")]
+)
+data class ArchivedSessionPayloadEntity(
+    @PrimaryKey val sessionId: String,
+    val messageCount: Int,
+    val originalSizeBytes: Long,
+    val compressedSizeBytes: Long,
+    val compressedPayload: ByteArray,
+    val archivedAtEpochMs: Long
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as ArchivedSessionPayloadEntity
+
+        if (sessionId != other.sessionId) return false
+        if (messageCount != other.messageCount) return false
+        if (originalSizeBytes != other.originalSizeBytes) return false
+        if (compressedSizeBytes != other.compressedSizeBytes) return false
+        if (!compressedPayload.contentEquals(other.compressedPayload)) return false
+        if (archivedAtEpochMs != other.archivedAtEpochMs) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = sessionId.hashCode()
+        result = 31 * result + messageCount
+        result = 31 * result + originalSizeBytes.hashCode()
+        result = 31 * result + compressedSizeBytes.hashCode()
+        result = 31 * result + compressedPayload.contentHashCode()
+        result = 31 * result + archivedAtEpochMs.hashCode()
+        return result
     }
 }

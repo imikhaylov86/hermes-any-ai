@@ -124,14 +124,33 @@ object ChatBackupManager {
     /**
      * Создает структурированную резервную копию всех бесед и сообщений в формате JSON
      */
-    suspend fun createFullBackupJson(sessionDao: SessionDao, messageDao: MessageDao): String {
+    suspend fun createFullBackupJson(
+        sessionDao: SessionDao,
+        messageDao: MessageDao,
+        archivedPayloadDao: com.hermes.mobile.persistence.database.ArchivedSessionPayloadDao? = null
+    ): String {
         val allSessions = sessionDao.getAllSessionsList()
         val allMessages = messageDao.getAllMessagesList()
 
         val messagesBySession = allMessages.groupBy { it.sessionId }
 
         val backupSessions = allSessions.map { s ->
-            val msgs = messagesBySession[s.id].orEmpty().map { m ->
+            val sessionMsgs = if (s.isArchived && messagesBySession[s.id].isNullOrEmpty() && archivedPayloadDao != null) {
+                val payload = archivedPayloadDao.getPayload(s.id)
+                if (payload != null) {
+                    try {
+                        com.hermes.mobile.persistence.database.SessionCompressionHelper.decompressMessages(payload.compressedPayload)
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                } else {
+                    emptyList()
+                }
+            } else {
+                messagesBySession[s.id].orEmpty()
+            }
+
+            val msgs = sessionMsgs.map { m ->
                 MessageBackupItem(
                     id = m.id,
                     sessionId = m.sessionId,

@@ -90,13 +90,16 @@ class AppSettingsManager(context: Context) {
     )
     val isDemoMode: StateFlow<Boolean> = _isDemoMode.asStateFlow()
 
+    private fun cleanProviderId(providerId: String): String =
+        providerId.removePrefix("custom:").removePrefix("custom_").trim()
+
     private val _activeModel = MutableStateFlow(
         prefs.getString(KEY_ACTIVE_MODEL, "gpt-4o") ?: "gpt-4o"
     )
     val activeModel: StateFlow<String> = _activeModel.asStateFlow()
 
     private val _activeProvider = MutableStateFlow(
-        (prefs.getString(KEY_ACTIVE_PROVIDER, "openai") ?: "openai").removePrefix("custom_")
+        cleanProviderId(prefs.getString(KEY_ACTIVE_PROVIDER, "openai") ?: "openai")
     )
     val activeProvider: StateFlow<String> = _activeProvider.asStateFlow()
 
@@ -111,7 +114,7 @@ class AppSettingsManager(context: Context) {
     val fallbackModel: StateFlow<String> = _fallbackModel.asStateFlow()
 
     private val _fallbackProvider = MutableStateFlow(
-        prefs.getString(KEY_FALLBACK_PROVIDER, "") ?: ""
+        cleanProviderId(prefs.getString(KEY_FALLBACK_PROVIDER, "") ?: "")
     )
     val fallbackProvider: StateFlow<String> = _fallbackProvider.asStateFlow()
 
@@ -181,7 +184,7 @@ class AppSettingsManager(context: Context) {
     }
 
     fun setFallbackModelAndProvider(model: String, providerId: String, providerName: String) {
-        val cleanProvider = providerId.removePrefix("custom_")
+        val cleanProvider = cleanProviderId(providerId)
         prefs.edit()
             .putString(KEY_FALLBACK_MODEL, model)
             .putString(KEY_FALLBACK_PROVIDER, cleanProvider)
@@ -265,15 +268,16 @@ class AppSettingsManager(context: Context) {
     }
 
     fun setActiveModelAndProvider(model: String, providerId: String, providerName: String) {
-        val cleanProvider = providerId.removePrefix("custom_")
+        val cleanProvider = cleanProviderId(providerId)
+        val cleanName = cleanProviderId(providerName)
         prefs.edit()
             .putString(KEY_ACTIVE_MODEL, model)
             .putString(KEY_ACTIVE_PROVIDER, cleanProvider)
-            .putString(KEY_ACTIVE_PROVIDER_NAME, providerName)
+            .putString(KEY_ACTIVE_PROVIDER_NAME, cleanName)
             .apply()
         _activeModel.value = model
         _activeProvider.value = cleanProvider
-        _activeProviderName.value = providerName
+        _activeProviderName.value = cleanName
     }
 
     fun getRestUrl(): String {
@@ -367,6 +371,43 @@ class AppSettingsManager(context: Context) {
         saveSlashCommands(DEFAULT_SLASH_COMMANDS)
     }
 
+    private val jsonHelper = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    fun getSavedCustomProviders(): List<SavedCustomProvider> {
+        val raw = prefs.getString(KEY_SAVED_CUSTOM_PROVIDERS, null) ?: return emptyList()
+        return try {
+            jsonHelper.decodeFromString<List<SavedCustomProvider>>(raw)
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveCustomProvider(provider: SavedCustomProvider) {
+        val current = getSavedCustomProviders().toMutableList()
+        val cleanId = cleanProviderId(provider.id)
+        val cleanName = cleanProviderId(provider.name)
+        val updatedItem = provider.copy(id = cleanId, name = cleanName)
+        val index = current.indexOfFirst {
+            cleanProviderId(it.id).equals(cleanId, ignoreCase = true) ||
+            cleanProviderId(it.name).equals(cleanName, ignoreCase = true)
+        }
+        if (index >= 0) {
+            current[index] = updatedItem
+        } else {
+            current.add(updatedItem)
+        }
+        prefs.edit().putString(KEY_SAVED_CUSTOM_PROVIDERS, jsonHelper.encodeToString(current)).apply()
+    }
+
+    fun removeSavedCustomProvider(identifier: String) {
+        val clean = cleanProviderId(identifier)
+        val current = getSavedCustomProviders().filterNot {
+            cleanProviderId(it.id).equals(clean, ignoreCase = true) ||
+            cleanProviderId(it.name).equals(clean, ignoreCase = true)
+        }
+        prefs.edit().putString(KEY_SAVED_CUSTOM_PROVIDERS, jsonHelper.encodeToString(current)).apply()
+    }
+
     companion object {
         private const val KEY_SERVER_URL = "key_server_url"
         private const val KEY_DEMO_MODE = "key_demo_mode"
@@ -384,5 +425,17 @@ class AppSettingsManager(context: Context) {
         private const val KEY_DEBUG_KEYS_EXPORT = "key_debug_keys_export"
         private const val KEY_DELETED_PROVIDERS = "key_deleted_providers"
         private const val KEY_KEEP_SCREEN_ON = "key_keep_screen_on"
+        private const val KEY_SAVED_CUSTOM_PROVIDERS = "key_saved_custom_providers_json_v1"
     }
 }
+
+@kotlinx.serialization.Serializable
+data class SavedCustomProvider(
+    val id: String,
+    val name: String,
+    val baseUrl: String,
+    val apiMode: String = "openai_compatible",
+    val models: List<String> = emptyList(),
+    val currentModel: String? = null
+)
+

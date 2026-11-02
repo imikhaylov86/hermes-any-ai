@@ -22,6 +22,7 @@ class ChatRepositoryImpl(
     private val webSocketClient: MobileWebSocketClient,
     private val settingsManager: AppSettingsManager,
     private val restClient: DashboardRestClient? = null,
+    private val archivedPayloadDao: com.hermes.mobile.persistence.database.ArchivedSessionPayloadDao? = null,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 ) : ChatRepository {
 
@@ -369,9 +370,27 @@ class ChatRepositoryImpl(
         }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     override fun getMessagesFlow(sessionId: String): Flow<List<ChatMessage>> {
-        return messageDao.getMessagesForSession(sessionId).map { entities ->
-            entities.map { it.toDomain() }
+        return messageDao.getMessagesForSession(sessionId).flatMapLatest { list ->
+            if (list.isNotEmpty() || archivedPayloadDao == null) {
+                flowOf(list.map { it.toDomain() })
+            } else {
+                flow {
+                    val payload = archivedPayloadDao.getPayload(sessionId)
+                    if (payload != null) {
+                        try {
+                            val decompressed = com.hermes.mobile.persistence.database.SessionCompressionHelper.decompressMessages(payload.compressedPayload)
+                            emit(decompressed.map { it.toDomain() })
+                        } catch (e: Exception) {
+                            android.util.Log.e("ChatRepository", "Failed to decompress archived messages for $sessionId: ${e.message}", e)
+                            emit(emptyList())
+                        }
+                    } else {
+                        emit(emptyList())
+                    }
+                }
+            }
         }
     }
 

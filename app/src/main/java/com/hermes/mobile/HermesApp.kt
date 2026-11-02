@@ -89,7 +89,41 @@ class HermesApp : Application(), coil.ImageLoaderFactory {
             settingsManager.clearFallbackModel()
         }
         if (settingsManager.activeModel.value == "gpt-6-luna") {
-            settingsManager.setActiveModelAndProvider("glm-5.3-flash", "custom:basisweb", "basisweb")
+            settingsManager.setActiveModelAndProvider("glm-5.3-flash", "basisweb", "basisweb")
+        }
+        val currentActiveProv = settingsManager.activeProvider.value
+        if (currentActiveProv.startsWith("custom:") || currentActiveProv.startsWith("custom_")) {
+            val clean = currentActiveProv.removePrefix("custom:").removePrefix("custom_")
+            settingsManager.setActiveModelAndProvider(
+                settingsManager.activeModel.value,
+                clean,
+                clean
+            )
+        }
+        val savedCustom = settingsManager.getSavedCustomProviders()
+        if (savedCustom.none { it.name.equals("basisweb", ignoreCase = true) }) {
+            settingsManager.saveCustomProvider(
+                com.hermes.mobile.persistence.datastore.SavedCustomProvider(
+                    id = "basisweb",
+                    name = "basisweb",
+                    baseUrl = "https://api.basisweb.ru/v1",
+                    apiMode = "openai_compatible",
+                    models = listOf("glm-5.3-flash"),
+                    currentModel = "glm-5.3-flash"
+                )
+            )
+        }
+        if (savedCustom.none { it.name.equals("z.ai", ignoreCase = true) || it.name.equals("zai", ignoreCase = true) }) {
+            settingsManager.saveCustomProvider(
+                com.hermes.mobile.persistence.datastore.SavedCustomProvider(
+                    id = "z.ai",
+                    name = "z.ai",
+                    baseUrl = "https://api.z.ai/api/coding/paas/v4",
+                    apiMode = "openai_compatible",
+                    models = listOf("glm-5.3-flash"),
+                    currentModel = "glm-5.3-flash"
+                )
+            )
         }
 
         webSocketClient = MobileWebSocketClient(endpointUrl = settingsManager.serverUrl.value)
@@ -129,7 +163,8 @@ class HermesApp : Application(), coil.ImageLoaderFactory {
             sessionDao = database.sessionDao(),
             webSocketClient = webSocketClient,
             settingsManager = settingsManager,
-            restClient = restClient
+            restClient = restClient,
+            archivedPayloadDao = database.archivedSessionPayloadDao()
         )
 
         sessionRepository = SessionRepositoryImpl(
@@ -137,7 +172,9 @@ class HermesApp : Application(), coil.ImageLoaderFactory {
             restClient = restClient,
             webSocketClient = webSocketClient,
             settingsManager = settingsManager,
-            messageDao = database.messageDao()
+            messageDao = database.messageDao(),
+            archivedPayloadDao = database.archivedSessionPayloadDao(),
+            database = database
         )
 
         // G17 (03 §D10): персист hermesSessionId в Room для конкретного чата

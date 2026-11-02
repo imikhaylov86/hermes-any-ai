@@ -98,6 +98,22 @@ interface AppStrings {
     val unarchiveChat: String
     val deleteChatConfirm: String
     val noSessionsFound: String
+    val selectChats: String
+    val selectedCount: String
+    val selectAll: String
+    val deselectAll: String
+    val deleteSelectedConfirm: String
+    val deleteSelectedDesc: String
+    val deleteSelectedBtn: String
+    val archiveSelectedBtn: String
+    val unarchiveSelectedBtn: String
+    val archivedSessionsTitle: String
+    val archivedSessionsSubtitle: String
+    val archivedBanner: String
+    val archivedBannerRestore: String
+    val archivedEmpty: String
+    val compressionSaved: String
+    val backToActiveChats: String
 
     // Settings Dialog
     val settingsTitle: String
@@ -449,6 +465,22 @@ class RuAppStrings : AppStrings {
     override val unarchiveChat = "Вернуть из архива"
     override val deleteChatConfirm = "Удалить этот диалог?"
     override val noSessionsFound = "Диалоги не найдены"
+    override val selectChats = "Выбрать"
+    override val selectedCount = "Выбрано: %d"
+    override val selectAll = "Выбрать все"
+    override val deselectAll = "Снять все"
+    override val deleteSelectedConfirm = "Удалить выбранные беседы?"
+    override val deleteSelectedDesc = "Будет безвозвратно удалено бесед: %d. Все сообщения и история этих чатов будут стёрты из базы данных без возможности восстановления."
+    override val deleteSelectedBtn = "Удалить выбранные"
+    override val archiveSelectedBtn = "В архив"
+    override val unarchiveSelectedBtn = "Разархивировать"
+    override val archivedSessionsTitle = "Архив бесед"
+    override val archivedSessionsSubtitle = "История сжата для экономии памяти"
+    override val archivedBanner = "Беседа находится в архиве. Сообщения сжаты для экономии памяти."
+    override val archivedBannerRestore = "Восстановить"
+    override val archivedEmpty = "В архиве пока нет бесед"
+    override val compressionSaved = "Сжатие: сэкономлено %s"
+    override val backToActiveChats = "Активные беседы"
 
     override val settingsTitle = "Настройки и диагностика"
     override val settingsSubtitle = "Управление агентом и шлюзами"
@@ -792,6 +824,22 @@ class EnAppStrings : AppStrings {
     override val unarchiveChat = "Unarchive"
     override val deleteChatConfirm = "Delete this conversation?"
     override val noSessionsFound = "No conversations found"
+    override val selectChats = "Select"
+    override val selectedCount = "Selected: %d"
+    override val selectAll = "Select all"
+    override val deselectAll = "Deselect all"
+    override val deleteSelectedConfirm = "Delete selected conversations?"
+    override val deleteSelectedDesc = "%d conversations will be permanently deleted. All messages and history will be lost."
+    override val deleteSelectedBtn = "Delete selected"
+    override val archiveSelectedBtn = "Archive"
+    override val unarchiveSelectedBtn = "Unarchive"
+    override val archivedSessionsTitle = "Archived Conversations"
+    override val archivedSessionsSubtitle = "History compressed to save storage"
+    override val archivedBanner = "This conversation is archived. Messages are compressed to save storage."
+    override val archivedBannerRestore = "Restore"
+    override val archivedEmpty = "No archived conversations"
+    override val compressionSaved = "Storage saved: %s"
+    override val backToActiveChats = "Active conversations"
 
     override val settingsTitle = "Settings & Diagnostics"
     override val settingsSubtitle = "Agent and gateway management"

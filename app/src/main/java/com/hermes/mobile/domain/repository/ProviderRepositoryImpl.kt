@@ -33,8 +33,10 @@ class ProviderRepositoryImpl(
         _error.value = null
         try {
             val dtos = restClient.getProviders()
+            val configProviders = restClient.getConfigProviders()
             val customEndpoints = restClient.getCustomEndpoints()
             val currentInfo = restClient.getModelInfo()
+            val savedCustom = settingsManager.getSavedCustomProviders()
 
             val deletedIds = settingsManager.deletedProviderIds.value
             val standardList = dtos.filterNot { dto ->
@@ -43,7 +45,9 @@ class ProviderRepositoryImpl(
                 dto.id.lowercase() in deletedIds || 
                 dto.name.lowercase() in deletedIds ||
                 "custom_${dto.name.lowercase()}" in deletedIds ||
-                "custom_${dto.id.lowercase()}" in deletedIds
+                "custom_${dto.id.lowercase()}" in deletedIds ||
+                "custom:${dto.name.lowercase()}" in deletedIds ||
+                "custom:${dto.id.lowercase()}" in deletedIds
             }.map { dto ->
                 val status = when (dto.status.lowercase()) {
                     "connected" -> ProviderStatus.CONNECTED
@@ -51,10 +55,16 @@ class ProviderRepositoryImpl(
                     "error" -> ProviderStatus.ERROR
                     else -> ProviderStatus.DISCONNECTED
                 }
-                val hasKey = dto.hasKey || keystoreManager.hasKey(dto.id) || keystoreManager.hasKey(dto.name)
+                val cleanName = dto.name.removePrefix("custom:").removePrefix("custom_")
+                val cleanId = dto.id.removePrefix("custom:").removePrefix("custom_")
+                val hasKey = dto.hasKey || 
+                    keystoreManager.hasKey(dto.id) || 
+                    keystoreManager.hasKey(dto.name) ||
+                    keystoreManager.hasKey(cleanName) ||
+                    keystoreManager.hasKey("custom_${cleanName.lowercase()}")
                 ProviderConfig(
-                    id = dto.id,
-                    name = dto.name,
+                    id = cleanId,
+                    name = cleanName,
                     status = status,
                     currentModel = dto.currentModel ?: dto.availableModels.firstOrNull(),
                     availableModels = dto.availableModels,
@@ -64,6 +74,87 @@ class ProviderRepositoryImpl(
                     isCustom = true
                 )
             }.toMutableList()
+
+            // 1. Обогащаем провайдерами из config.yaml демона (GET /api/config -> providers)
+            if (configProviders != null) {
+                for ((cfgName, pair) in configProviders) {
+                    val (cfgUrl, cfgModel) = pair
+                    val cleanCfgName = cfgName.removePrefix("custom:").removePrefix("custom_")
+                    if (cleanCfgName in deletedIds || cleanCfgName.lowercase() in deletedIds) continue
+                    val existingIndex = standardList.indexOfFirst {
+                        it.name.equals(cleanCfgName, ignoreCase = true) ||
+                        it.id.equals(cleanCfgName, ignoreCase = true)
+                    }
+                    val hasKey = keystoreManager.hasKey(cleanCfgName) ||
+                        keystoreManager.hasKey(cfgName) ||
+                        keystoreManager.hasKey("custom_${cleanCfgName.lowercase()}")
+                    val modelsList = if (cfgModel.isNotBlank()) listOf(cfgModel) else listOf(cleanCfgName)
+                    if (existingIndex != -1) {
+                        val ex = standardList[existingIndex]
+                        standardList[existingIndex] = ex.copy(
+                            baseUrl = if (!ex.baseUrl.isNullOrBlank()) ex.baseUrl else cfgUrl,
+                            currentModel = ex.currentModel ?: cfgModel.takeIf { it.isNotBlank() },
+                            availableModels = if (ex.availableModels.isNotEmpty()) ex.availableModels else modelsList,
+                            hasApiKey = ex.hasApiKey || hasKey,
+                            isCustom = true
+                        )
+                    } else {
+                        standardList.add(
+                            ProviderConfig(
+                                id = cleanCfgName,
+                                name = cleanCfgName,
+                                status = if (hasKey) ProviderStatus.CONNECTED else ProviderStatus.AUTH_REQUIRED,
+                                currentModel = cfgModel.takeIf { it.isNotBlank() },
+                                availableModels = modelsList,
+                                hasApiKey = hasKey,
+                                baseUrl = cfgUrl,
+                                apiMode = ProviderApiMode.OPENAI_COMPATIBLE,
+                                isCustom = true
+                            )
+                        )
+                    }
+                }
+            }
+
+            // 2. Обогащаем локально сохраненными кастомными провайдерами из AppSettingsManager
+            for (sc in savedCustom) {
+                val cleanScId = sc.id.removePrefix("custom:").removePrefix("custom_")
+                val cleanScName = sc.name.removePrefix("custom:").removePrefix("custom_")
+                if (cleanScName in deletedIds || cleanScName.lowercase() in deletedIds) continue
+                val existingIndex = standardList.indexOfFirst {
+                    it.name.equals(cleanScName, ignoreCase = true) ||
+                    it.id.equals(cleanScId, ignoreCase = true)
+                }
+                val hasKey = keystoreManager.hasKey(cleanScId) || 
+                    keystoreManager.hasKey(cleanScName) || 
+                    keystoreManager.hasKey("custom_${cleanScName.lowercase()}")
+                val effModels = sc.models.ifEmpty { listOf(sc.currentModel ?: cleanScName) }
+                if (existingIndex != -1) {
+                    val ex = standardList[existingIndex]
+                    standardList[existingIndex] = ex.copy(
+                        baseUrl = if (!ex.baseUrl.isNullOrBlank()) ex.baseUrl else sc.baseUrl,
+                        apiMode = if (ex.baseUrl.isNullOrBlank()) ProviderApiMode.fromId(sc.apiMode) else ex.apiMode,
+                        availableModels = if (ex.availableModels.isNotEmpty()) ex.availableModels else effModels,
+                        currentModel = ex.currentModel ?: sc.currentModel,
+                        hasApiKey = ex.hasApiKey || hasKey,
+                        isCustom = true
+                    )
+                } else {
+                    standardList.add(
+                        ProviderConfig(
+                            id = cleanScId,
+                            name = cleanScName,
+                            status = if (hasKey) ProviderStatus.CONNECTED else ProviderStatus.AUTH_REQUIRED,
+                            currentModel = sc.currentModel ?: effModels.firstOrNull(),
+                            availableModels = effModels,
+                            hasApiKey = hasKey,
+                            baseUrl = sc.baseUrl,
+                            apiMode = ProviderApiMode.fromId(sc.apiMode),
+                            isCustom = true
+                        )
+                    )
+                }
+            }
 
             // Дополняем и обогащаем пользовательскими эндпоинтами из конфига агента
             customEndpoints.filterNot { ce ->
@@ -113,6 +204,20 @@ class ProviderRepositoryImpl(
                 }
             }
 
+            // Синхронизируем все кастомные провайдеры обратно в AppSettingsManager
+            standardList.filter { it.isCustom && !it.baseUrl.isNullOrBlank() }.forEach { cp ->
+                settingsManager.saveCustomProvider(
+                    com.hermes.mobile.persistence.datastore.SavedCustomProvider(
+                        id = cp.id.removePrefix("custom:").removePrefix("custom_"),
+                        name = cp.name.removePrefix("custom:").removePrefix("custom_"),
+                        baseUrl = cp.baseUrl!!,
+                        apiMode = cp.apiMode.id,
+                        models = cp.availableModels,
+                        currentModel = cp.currentModel
+                    )
+                )
+            }
+
             if (standardList.isNotEmpty()) {
                 _providers.value = standardList
                 // Инициализируем настройки из демона только если у пользователя еще не выбрана модель
@@ -155,8 +260,8 @@ class ProviderRepositoryImpl(
         val raw = fallbackRaw ?: ""
         val candidate = prov?.id ?: raw
         val candidateName = prov?.name ?: raw
-        val cleanId = candidate.removePrefix("custom_").trim().lowercase()
-        val cleanName = candidateName.trim().lowercase()
+        val cleanId = candidate.removePrefix("custom:").removePrefix("custom_").trim().lowercase()
+        val cleanName = candidateName.removePrefix("custom:").removePrefix("custom_").trim().lowercase()
 
         return when {
             cleanId == "anthropic" || cleanName.contains("anthropic") || cleanName.contains("claude") -> "anthropic"
@@ -169,17 +274,35 @@ class ProviderRepositoryImpl(
             cleanId == "ollama" || cleanName.contains("ollama") -> "ollama"
             cleanId == "zai" || cleanName.contains("z.ai") || cleanName.contains("zai") || cleanName.contains("glm") -> "zai"
             cleanId == "qwen" || cleanId == "dashscope" || cleanName.contains("qwen") || cleanName.contains("dashscope") -> "dashscope"
-            prov != null && !prov.baseUrl.isNullOrBlank() -> prov.name
-            prov != null && prov.id.startsWith("custom_") -> prov.name
-            prov != null -> prov.id
-            else -> raw.removePrefix("custom_")
+            prov != null && !prov.baseUrl.isNullOrBlank() -> prov.name.removePrefix("custom:").removePrefix("custom_")
+            prov != null && (prov.id.startsWith("custom_") || prov.id.startsWith("custom:")) -> prov.name.removePrefix("custom:").removePrefix("custom_")
+            prov != null -> prov.id.removePrefix("custom:").removePrefix("custom_")
+            else -> raw.removePrefix("custom:").removePrefix("custom_")
         }
     }
 
     override suspend fun setActiveModel(model: String, providerId: String?): Result<Unit> {
-        val prov = _providers.value.firstOrNull { it.id == providerId || it.name.equals(providerId, ignoreCase = true) }
-            ?: _providers.value.firstOrNull { it.id.equals(providerId?.removePrefix("custom_"), ignoreCase = true) }
-            ?: _providers.value.firstOrNull { it.availableModels.contains(model) }
+        val cleanReqId = providerId?.removePrefix("custom:")?.removePrefix("custom_")?.trim()
+        val prov = _providers.value.firstOrNull { 
+            it.id == providerId || 
+            it.name.equals(providerId, ignoreCase = true) ||
+            (!cleanReqId.isNullOrBlank() && (it.id.equals(cleanReqId, ignoreCase = true) || it.name.equals(cleanReqId, ignoreCase = true)))
+        } ?: _providers.value.firstOrNull { it.availableModels.contains(model) }
+          ?: settingsManager.getSavedCustomProviders().firstOrNull {
+              !cleanReqId.isNullOrBlank() && (it.id.equals(cleanReqId, ignoreCase = true) || it.name.equals(cleanReqId, ignoreCase = true))
+          }?.let { saved ->
+              ProviderConfig(
+                  id = saved.id,
+                  name = saved.name,
+                  status = ProviderStatus.CONNECTED,
+                  currentModel = model,
+                  availableModels = saved.models.ifEmpty { listOf(model) },
+                  hasApiKey = keystoreManager.hasKey(saved.id) || keystoreManager.hasKey(saved.name),
+                  baseUrl = saved.baseUrl,
+                  apiMode = ProviderApiMode.fromId(saved.apiMode),
+                  isCustom = true
+              )
+          }
 
         val daemonSlug = resolveDaemonProviderSlug(prov, providerId)
         val targetProviderId = prov?.id ?: daemonSlug
@@ -187,6 +310,30 @@ class ProviderRepositoryImpl(
 
         if (prov != null && (!prov.hasApiKey || prov.status == ProviderStatus.AUTH_REQUIRED)) {
             return Result.failure(Exception("Провайдер ${prov.name} не подключен: укажите API-ключ перед выбором модели"))
+        }
+
+        // Если провайдер кастомный (есть baseUrl) — гарантируем его регистрацию в config.yaml
+        // демона и наличие ключа в env ДО переключения модели в runtime
+        if (prov != null && !prov.baseUrl.isNullOrBlank()) {
+            val customName = daemonSlug
+            val keyEnv = keyEnvNameFor(customName)
+            restClient.registerProviderInConfig(
+                name = customName,
+                baseUrl = prov.baseUrl!!,
+                model = model,
+                keyEnv = keyEnv
+            )
+            val apiKey = keystoreManager.getDecrypted(prov.id)
+                ?: keystoreManager.getDecrypted(prov.name)
+                ?: keystoreManager.getDecrypted(customName)
+                ?: keystoreManager.getDecrypted("custom_${customName.lowercase()}")
+                ?: keystoreManager.getDecrypted("custom:${customName.lowercase()}")
+            if (!apiKey.isNullOrBlank()) {
+                restClient.putEnvVar(keyEnv, apiKey)
+                for (cand in envKeyCandidatesFor(prov.id, customName)) {
+                    restClient.putEnvVar(cand, apiKey)
+                }
+            }
         }
 
         // Синхронизация активной модели с runtime Hermes через REST (отправляем канонический daemonSlug)
@@ -197,12 +344,12 @@ class ProviderRepositoryImpl(
 
         // Синхронизация с WebSocket сессией (модель + провайдер)
         webSocketClient.setActiveModel(model, daemonSlug)
-        settingsManager.setActiveModelAndProvider(model, targetProviderId, targetProviderName)
+        settingsManager.setActiveModelAndProvider(model, daemonSlug, targetProviderName)
 
         // Обновляем состояние в локальном потоке
         val currentList = _providers.value
         _providers.value = currentList.map { p ->
-            if (p.id == targetProviderId || p.name.equals(targetProviderName, ignoreCase = true) || p.id == prov?.id) {
+            if (p.id == targetProviderId || p.name.equals(targetProviderName, ignoreCase = true) || p.id == prov?.id || p.id == daemonSlug) {
                 p.copy(currentModel = model)
             } else {
                 p
@@ -369,6 +516,18 @@ class ProviderRepositoryImpl(
             isCustom = true
         )
 
+        // Сохраняем в персистентный список AppSettingsManager
+        settingsManager.saveCustomProvider(
+            com.hermes.mobile.persistence.datastore.SavedCustomProvider(
+                id = customId,
+                name = trimmedName,
+                baseUrl = baseUrl.trim(),
+                apiMode = apiMode.id,
+                models = effectiveModels,
+                currentModel = effectiveModels.firstOrNull()
+            )
+        )
+
         // 3. Обновляем список локально
         val updatedList = _providers.value.filterNot {
             it.id == customId || it.name.equals(trimmedName, ignoreCase = true) || it.id == "custom_${trimmedName.lowercase()}"
@@ -434,6 +593,16 @@ class ProviderRepositoryImpl(
             apiMode = ProviderApiMode.OPENAI_COMPATIBLE,
             isCustom = true
         )
+        settingsManager.saveCustomProvider(
+            com.hermes.mobile.persistence.datastore.SavedCustomProvider(
+                id = cleanId,
+                name = trimmedName,
+                baseUrl = trimmedBaseUrl,
+                apiMode = ProviderApiMode.OPENAI_COMPATIBLE.id,
+                models = listOf(effectiveModel),
+                currentModel = effectiveModel
+            )
+        )
         _providers.value = _providers.value.filterNot {
             it.id == cleanId || it.id == trimmedName || it.name.equals(trimmedName, ignoreCase = true) || it.id == "custom_${trimmedName.lowercase()}"
         } + newProvider
@@ -474,8 +643,12 @@ class ProviderRepositoryImpl(
             prov.id.lowercase(),
             prov.name.lowercase(),
             "custom_${prov.name.lowercase()}",
-            "custom_${prov.id.lowercase()}"
+            "custom_${prov.id.lowercase()}",
+            "custom:${prov.name.lowercase()}",
+            "custom:${prov.id.lowercase()}"
         )
+        settingsManager.removeSavedCustomProvider(prov.name)
+        settingsManager.removeSavedCustomProvider(prov.id)
 
         // 2. Удаляем из конфига агента Hermes (best-effort)
         try {
@@ -496,7 +669,7 @@ class ProviderRepositoryImpl(
         _providers.value = updated
 
         // 4. Если удалённый провайдер был активным — переключаем на первый доступный
-        val currentActive = settingsManager.activeProvider.value.removePrefix("custom_")
+        val currentActive = settingsManager.activeProvider.value.removePrefix("custom:").removePrefix("custom_")
         if (currentActive == providerId || currentActive == prov.name || settingsManager.activeProviderName.value == prov.name) {
             val fallback = updated.firstOrNull { it.hasApiKey } ?: updated.firstOrNull()
             if (fallback != null) {
@@ -621,16 +794,39 @@ class ProviderRepositoryImpl(
 
             var appliedCount = 0
 
-            // 0. Локальный список провайдеров (если пуст — подтянем из демона)
+            // 0. Локальный список провайдеров (включая сохраненные кастомные провайдеры)
             val deletedIds = settingsManager.deletedProviderIds.value
-            val providersToSync = _providers.value.ifEmpty {
+            val savedCustomConfigs = settingsManager.getSavedCustomProviders().filterNot {
+                it.name in deletedIds || it.id in deletedIds || it.name.lowercase() in deletedIds
+            }.map { sc ->
+                val cleanScName = sc.name.removePrefix("custom:").removePrefix("custom_")
+                val cleanScId = sc.id.removePrefix("custom:").removePrefix("custom_")
+                val hasKey = keystoreManager.hasKey(cleanScId) || 
+                    keystoreManager.hasKey(cleanScName) || 
+                    keystoreManager.hasKey("custom_${cleanScName.lowercase()}")
+                ProviderConfig(
+                    id = cleanScId,
+                    name = cleanScName,
+                    status = if (hasKey) ProviderStatus.CONNECTED else ProviderStatus.AUTH_REQUIRED,
+                    currentModel = sc.currentModel ?: sc.models.firstOrNull() ?: sc.name,
+                    availableModels = sc.models.ifEmpty { listOf(sc.currentModel ?: sc.name) },
+                    hasApiKey = hasKey,
+                    baseUrl = sc.baseUrl,
+                    apiMode = ProviderApiMode.fromId(sc.apiMode),
+                    isCustom = true
+                )
+            }
+
+            val localList = _providers.value
+            val combinedList = (localList + savedCustomConfigs).distinctBy { it.name.lowercase() }
+            val providersToSync = combinedList.ifEmpty {
                 try {
                     restClient.getProviders().filterNot { dto ->
                         dto.id in deletedIds || dto.name in deletedIds || dto.id.lowercase() in deletedIds || dto.name.lowercase() in deletedIds
                     }.map { dto ->
                         ProviderConfig(
-                            id = dto.id,
-                            name = dto.name,
+                            id = dto.id.removePrefix("custom:").removePrefix("custom_"),
+                            name = dto.name.removePrefix("custom:").removePrefix("custom_"),
                             status = ProviderStatus.CONNECTED,
                             currentModel = dto.currentModel,
                             availableModels = dto.availableModels,
@@ -647,19 +843,20 @@ class ProviderRepositoryImpl(
             //    key_env — даже если провайдер уже есть: конфиг мог быть создан с другим
             //    key_env, тогда демон ищет ключ не под тем именем. PUT идемпотентен.
             val configProviders = restClient.getConfigProviders()
-            val customProviders = providersToSync.filter { it.isCustom && !it.baseUrl.isNullOrBlank() }
+            val customProviders = (providersToSync + savedCustomConfigs).filter { it.isCustom && !it.baseUrl.isNullOrBlank() }.distinctBy { it.name.lowercase() }
             if (configProviders != null) {
                 for (prov in customProviders) {
                     val model = prov.currentModel ?: prov.availableModels.firstOrNull() ?: prov.name
+                    val customName = prov.name.removePrefix("custom:").removePrefix("custom_")
                     if (restClient.registerProviderInConfig(
-                            name = prov.name,
+                            name = customName,
                             baseUrl = prov.baseUrl!!,
                             model = model,
-                            keyEnv = keyEnvNameFor(prov.name)
+                            keyEnv = keyEnvNameFor(customName)
                         )
                     ) {
                         appliedCount++
-                        android.util.Log.i("ProviderRepository", "sync: (re)registered provider '${prov.name}' in daemon config")
+                        android.util.Log.i("ProviderRepository", "sync: (re)registered provider '$customName' in daemon config")
                     }
                 }
             }
@@ -669,37 +866,46 @@ class ProviderRepositoryImpl(
             //    (как шаг 1 при null от getConfigProviders), а не считаем env пустым.
             val envState = restClient.getEnvKeys() ?: return Result.success(Unit)
             val seenValues = mutableSetOf<String>()
-            for (prov in providersToSync) {
+            for (prov in (providersToSync + customProviders).distinctBy { it.name.lowercase() }) {
+                val cleanName = prov.name.removePrefix("custom:").removePrefix("custom_")
+                val cleanId = prov.id.removePrefix("custom:").removePrefix("custom_")
                 val apiKey = keystoreManager.getDecrypted(prov.id)
                     ?: keystoreManager.getDecrypted(prov.name)
-                    ?: keystoreManager.getDecrypted("custom_${prov.name.lowercase()}")
+                    ?: keystoreManager.getDecrypted(cleanName)
+                    ?: keystoreManager.getDecrypted(cleanId)
+                    ?: keystoreManager.getDecrypted("custom_${cleanName.lowercase()}")
+                    ?: keystoreManager.getDecrypted("custom:${cleanName.lowercase()}")
                     ?: continue
                 if (apiKey.isBlank() || !seenValues.add(apiKey)) continue
 
                 // Для кастомных провайдеров — канонический key_env + все совместимые имена
                 val candidates = mutableListOf<String>()
-                if (prov.isCustom) candidates.add(keyEnvNameFor(prov.name))
-                candidates.addAll(envKeyCandidatesFor(prov.id, prov.name))
+                if (prov.isCustom) candidates.add(keyEnvNameFor(cleanName))
+                candidates.addAll(envKeyCandidatesFor(prov.id, cleanName))
+                candidates.addAll(envKeyCandidatesFor(cleanId, cleanName))
                 val alreadySet = candidates.any { envState[it] == true }
                 if (alreadySet) continue
 
                 for (envName in candidates.distinct()) {
                     if (restClient.putEnvVar(envName, apiKey)) {
                         appliedCount++
-                        android.util.Log.i("ProviderRepository", "sync: pushed key as $envName for '${prov.name}'")
+                        android.util.Log.i("ProviderRepository", "sync: pushed key as $envName for '${cleanName}'")
                         break
                     }
                 }
             }
 
-            // 3. Выбор модели при пустом model/info
-            //    (конфиг-PUT мог сбросить секцию model — восстанавливаем и в этом случае)
+            // 3. Выбор модели при пустом model/info или расхождении с активной
             val modelInfo = restClient.getModelInfo() ?: return Result.success(Unit)
             var modelApplied = false
-            if (modelInfo.model.isNullOrBlank() || modelInfo.provider.isNullOrBlank()) {
-                val activeModel = settingsManager.activeModel.value
-                val activeProvider = settingsManager.activeProvider.value
-                val prov = _providers.value.firstOrNull { it.id == activeProvider || it.name.equals(activeProvider, ignoreCase = true) }
+            val activeModel = settingsManager.activeModel.value
+            val activeProvider = settingsManager.activeProvider.value.removePrefix("custom:").removePrefix("custom_")
+            val isModelMissingOrStale = modelInfo.model.isNullOrBlank() || 
+                modelInfo.provider.isNullOrBlank() || 
+                (activeModel.isNotBlank() && (modelInfo.model != activeModel || modelInfo.provider != activeProvider))
+            if (isModelMissingOrStale) {
+                val prov = customProviders.firstOrNull { it.id.equals(activeProvider, ignoreCase = true) || it.name.equals(activeProvider, ignoreCase = true) }
+                    ?: _providers.value.firstOrNull { it.id.equals(activeProvider, ignoreCase = true) || it.name.equals(activeProvider, ignoreCase = true) }
                 val daemonSlug = resolveDaemonProviderSlug(prov, activeProvider)
                 if (activeModel.isNotBlank()) {
                     val res = restClient.setModel(activeModel, daemonSlug)

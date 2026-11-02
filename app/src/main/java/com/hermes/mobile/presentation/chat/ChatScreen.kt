@@ -353,12 +353,51 @@ fun ChatScreen(
                     .navigationBarsPadding()
                     .imePadding()
             ) {
-                // Всплывающая палитра слэш-команд при наборе /
-                AnimatedVisibility(
-                    visible = inputText.startsWith("/"),
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
+                if (activeSession?.isArchived == true) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        shape = AppDimensions.ShapeCard,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(
+                                    imageVector = Icons.Default.Archive,
+                                    contentDescription = null,
+                                    tint = PrimaryIndigo,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = strings.archivedBanner,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = { viewModel.unarchiveActiveSession() },
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo),
+                                shape = AppDimensions.ShapeButton,
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text(strings.archivedBannerRestore, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                } else {
+                    // Всплывающая палитра слэш-команд при наборе /
+                    AnimatedVisibility(
+                        visible = inputText.startsWith("/"),
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut()
+                    ) {
                     SlashCommandPalette(
                         filterText = inputText,
                         commands = slashCommands,
@@ -578,12 +617,50 @@ fun ChatScreen(
                 }
             }
         }
+    }
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            // Баннер архивированной сессии
+            if (activeSession?.isArchived == true) {
+                Surface(
+                    color = PrimaryIndigo.copy(alpha = 0.12f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Archive,
+                            contentDescription = null,
+                            tint = PrimaryIndigo,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = strings.archivedBanner,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = { viewModel.unarchiveActiveSession() },
+                            shape = AppDimensions.ShapeButton,
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text(strings.archivedBannerRestore, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
             // Информационный баннер о наличии новой версии приложения
             AnimatedVisibility(
                 visible = updateState is com.hermes.mobile.domain.update.UpdateState.UpdateAvailable

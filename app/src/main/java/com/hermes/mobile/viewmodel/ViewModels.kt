@@ -32,7 +32,7 @@ class ChatViewModel(
     val activeSession: StateFlow<SessionInfo?> = _activeSessionId
         .flatMapLatest { id ->
             if (id.isBlank()) flowOf(null)
-            else sessionRepository.getSessionsFlow().map { list -> list.find { it.id == id } }
+            else sessionRepository.getSessionByIdFlow(id)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -264,6 +264,15 @@ class ChatViewModel(
         if (currId.isNotBlank() && clean.isNotBlank()) {
             viewModelScope.launch {
                 sessionRepository.updateSessionTitle(currId, clean)
+            }
+        }
+    }
+
+    fun unarchiveActiveSession() {
+        val currId = _activeSessionId.value
+        if (currId.isNotBlank()) {
+            viewModelScope.launch {
+                sessionRepository.unarchiveSessionWithDecompression(currId)
             }
         }
     }
@@ -559,7 +568,7 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 val db = HermesApp.instance.database
-                val jsonStr = ChatBackupManager.createFullBackupJson(db.sessionDao(), db.messageDao())
+                val jsonStr = ChatBackupManager.createFullBackupJson(db.sessionDao(), db.messageDao(), db.archivedSessionPayloadDao())
                 ChatBackupManager.shareBackupJson(context, jsonStr)
             } catch (e: Exception) {
                 android.widget.Toast.makeText(context, "Ошибка бэкапа: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
@@ -652,6 +661,9 @@ class SessionViewModel(
 ) : ViewModel() {
 
     val searchQuery = MutableStateFlow("")
+    val isSelectionMode = MutableStateFlow(false)
+    val selectedSessionIds = MutableStateFlow<Set<String>>(emptySet())
+    val isArchiveSheetOpen = MutableStateFlow(false)
 
     val sessions: StateFlow<List<SessionInfo>> = combine(
         sessionRepository.getSessionsFlow(),
@@ -660,6 +672,85 @@ class SessionViewModel(
         if (query.isBlank()) list
         else list.filter { it.title.contains(query, ignoreCase = true) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val archivedSessions: StateFlow<List<SessionInfo>> = combine(
+        sessionRepository.getArchivedSessionsFlow(),
+        searchQuery
+    ) { list, query ->
+        if (query.isBlank()) list
+        else list.filter { it.title.contains(query, ignoreCase = true) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val archivedCount: StateFlow<Int> = sessionRepository.getArchivedCountFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val compressionSavings: StateFlow<Pair<Long, Long>> = sessionRepository.getCompressionSavingsFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Pair(0L, 0L))
+
+    fun toggleSelectionMode(enable: Boolean? = null) {
+        val target = enable ?: !isSelectionMode.value
+        isSelectionMode.value = target
+        if (!target) {
+            selectedSessionIds.value = emptySet()
+        }
+    }
+
+    fun toggleSessionSelection(sessionId: String) {
+        val current = selectedSessionIds.value.toMutableSet()
+        if (current.contains(sessionId)) {
+            current.remove(sessionId)
+        } else {
+            current.add(sessionId)
+        }
+        selectedSessionIds.value = current
+    }
+
+    fun selectAll(allIds: List<String>) {
+        selectedSessionIds.value = allIds.toSet()
+    }
+
+    fun clearSelection() {
+        selectedSessionIds.value = emptySet()
+        isSelectionMode.value = false
+    }
+
+    fun deleteSelectedSessions(onActiveDeleted: () -> Unit) {
+        val ids = selectedSessionIds.value.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            sessionRepository.deleteSessionsBatch(ids)
+            clearSelection()
+            onActiveDeleted()
+        }
+    }
+
+    fun archiveSelectedSessions() {
+        val ids = selectedSessionIds.value.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            sessionRepository.archiveSessionsBatch(ids)
+            clearSelection()
+        }
+    }
+
+    fun unarchiveSelectedSessions() {
+        val ids = selectedSessionIds.value.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            sessionRepository.unarchiveSessionsBatch(ids)
+            clearSelection()
+        }
+    }
+
+    fun unarchiveSession(sessionId: String) {
+        viewModelScope.launch {
+            sessionRepository.unarchiveSessionWithDecompression(sessionId)
+        }
+    }
+
+    fun setArchiveSheetOpen(open: Boolean) {
+        isArchiveSheetOpen.value = open
+    }
 
     fun createSession(title: String = "Новая беседа", onCreated: (String) -> Unit) {
         viewModelScope.launch {
@@ -694,7 +785,15 @@ class SessionViewModel(
         viewModelScope.launch {
             val session = sessionRepository.getSessionById(sessionId) ?: return@launch
             val db = HermesApp.instance.database
-            val msgs = db.messageDao().getMessagesListForSession(sessionId).map { it.toDomain() }
+            var msgs = db.messageDao().getMessagesListForSession(sessionId).map { it.toDomain() }
+            if (msgs.isEmpty() && session.isArchived) {
+                val payload = db.archivedSessionPayloadDao().getPayload(sessionId)
+                if (payload != null) {
+                    try {
+                        msgs = com.hermes.mobile.persistence.database.SessionCompressionHelper.decompressMessages(payload.compressedPayload).map { it.toDomain() }
+                    } catch (_: Exception) {}
+                }
+            }
             val md = ChatBackupManager.formatSessionToMarkdown(session, msgs)
             ChatBackupManager.shareMarkdown(context, session.title, md)
         }

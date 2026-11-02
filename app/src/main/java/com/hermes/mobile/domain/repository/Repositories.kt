@@ -23,14 +23,23 @@ interface ChatRepository {
 
 interface SessionRepository {
     fun getSessionsFlow(): Flow<List<SessionInfo>>
+    fun getArchivedSessionsFlow(): Flow<List<SessionInfo>>
+    fun getArchivedCountFlow(): Flow<Int>
     suspend fun getSessionById(sessionId: String): SessionInfo?
+    fun getSessionByIdFlow(sessionId: String): Flow<SessionInfo?>
     suspend fun getLatestSession(): SessionInfo?
     suspend fun createSession(title: String = "Новая беседа", model: String = "Hermes 3"): SessionInfo
     suspend fun updateSessionTitle(sessionId: String, newTitle: String)
     suspend fun togglePinSession(sessionId: String)
     suspend fun toggleArchiveSession(sessionId: String)
+    suspend fun archiveSessionWithCompression(sessionId: String)
+    suspend fun unarchiveSessionWithDecompression(sessionId: String)
     suspend fun deleteSession(sessionId: String)
+    suspend fun deleteSessionsBatch(sessionIds: List<String>)
+    suspend fun archiveSessionsBatch(sessionIds: List<String>)
+    suspend fun unarchiveSessionsBatch(sessionIds: List<String>)
     suspend fun updateHermesSessionId(sessionId: String, hermesSessionId: String?)
+    fun getCompressionSavingsFlow(): Flow<Pair<Long, Long>>
 }
 
 interface RuntimeRepository {

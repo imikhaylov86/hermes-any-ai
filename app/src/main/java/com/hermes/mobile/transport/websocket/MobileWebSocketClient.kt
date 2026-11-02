@@ -450,7 +450,7 @@ class MobileWebSocketClient(
             put("method", "session.create")
             put("params", buildJsonObject {
                 val mod = activeModel
-                val prov = activeProvider?.removePrefix("custom_")
+                val prov = activeProvider?.removePrefix("custom:")?.removePrefix("custom_")
                 put("title", if (!mod.isNullOrBlank()) "Hermes - $mod" else "Hermes Mobile Session")
                 if (!mod.isNullOrBlank()) {
                     put("model", mod)
@@ -914,7 +914,7 @@ class MobileWebSocketClient(
     fun setActiveModel(model: String, provider: String = "") {
         activeModel = model
         if (provider.isNotEmpty()) {
-            activeProvider = provider.removePrefix("custom_")
+            activeProvider = provider.removePrefix("custom:").removePrefix("custom_")
         }
         // G17 (03 §D10): hermesSessionId НЕ зануляем при установке/смене модели!
         // Это предотвращает потерю контекста диалога при старте приложения и смене модели.
