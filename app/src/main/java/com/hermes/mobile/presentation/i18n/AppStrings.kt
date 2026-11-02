@@ -69,6 +69,22 @@ interface AppStrings {
     val imageFullScreen: String
     val imageSavingProgress: String
 
+    // File Attachments & Documents
+    val fileSavedDownloads: String
+    val fileSaveFailed: String
+    val filePreview: String
+    val fileDownload: String
+    val fileDownloading: String
+    val fileDoc: String
+    val fileArchive: String
+    val fileAudio: String
+    val fileVideo: String
+    val fileCode: String
+    val filePreviewTitle: String
+    val fileLoadingPreview: String
+    val filePreviewError: String
+    val fileCopied: String
+
     // Sessions Drawer
     val sessionsTitle: String
     val newChat: String
@@ -406,6 +422,21 @@ class RuAppStrings : AppStrings {
     override val imageFullScreen = "Во весь экран"
     override val imageSavingProgress = "Сохранение..."
 
+    override val fileSavedDownloads = "Файл сохранён в Загрузки: %s"
+    override val fileSaveFailed = "Не удалось сохранить файл"
+    override val filePreview = "Просмотр"
+    override val fileDownload = "Скачать"
+    override val fileDownloading = "Сохранение..."
+    override val fileDoc = "Документ"
+    override val fileArchive = "Архив"
+    override val fileAudio = "Аудио"
+    override val fileVideo = "Видео"
+    override val fileCode = "Исходный код"
+    override val filePreviewTitle = "Просмотр файла"
+    override val fileLoadingPreview = "Загрузка содержимого..."
+    override val filePreviewError = "Не удалось загрузить содержимое файла"
+    override val fileCopied = "Текст файла скопирован"
+
     override val sessionsTitle = "Диалоги"
     override val newChat = "Новый диалог"
     override val searchSessionsHint = "Поиск по беседам..."
@@ -733,6 +764,21 @@ class EnAppStrings : AppStrings {
     override val imageSaveGallery = "Save to Gallery"
     override val imageFullScreen = "Fullscreen"
     override val imageSavingProgress = "Saving..."
+
+    override val fileSavedDownloads = "File saved to Downloads: %s"
+    override val fileSaveFailed = "Failed to save file"
+    override val filePreview = "Preview"
+    override val fileDownload = "Download"
+    override val fileDownloading = "Saving..."
+    override val fileDoc = "Document"
+    override val fileArchive = "Archive"
+    override val fileAudio = "Audio"
+    override val fileVideo = "Video"
+    override val fileCode = "Source Code"
+    override val filePreviewTitle = "File Preview"
+    override val fileLoadingPreview = "Loading preview..."
+    override val filePreviewError = "Failed to load file preview"
+    override val fileCopied = "File text copied"
 
     override val sessionsTitle = "Conversations"
     override val newChat = "New Chat"

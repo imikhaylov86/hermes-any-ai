@@ -143,41 +143,13 @@ fun MessageBubble(
                                     label = attach.name
                                 )
                             } else {
-                                Surface(
-                                    shape = AppDimensions.ShapeBadge,
-                                    color = Color.Black.copy(alpha = 0.25f),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.AttachFile,
-                                            contentDescription = strings.fileDescription,
-                                            tint = Color.White.copy(alpha = 0.9f),
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = attach.name,
-                                                color = Color.White,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            if (attach.sizeBytes > 0) {
-                                                Text(
-                                                    text = formatFileSize(attach.sizeBytes),
-                                                    color = Color.White.copy(alpha = 0.65f),
-                                                    fontSize = 10.sp
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
+                                val ext = attach.name.substringAfterLast(".", "")
+                                ChatFileCard(
+                                    source = imageSource,
+                                    filename = attach.name,
+                                    extension = ext,
+                                    sizeBytes = if (attach.sizeBytes > 0) attach.sizeBytes else null
+                                )
                             }
                         }
                     }
@@ -301,16 +273,6 @@ fun MessageBubble(
     }
 }
 
-private fun formatFileSize(bytes: Long): String {
-    if (bytes <= 0) return ""
-    val kb = bytes / 1024.0
-    val mb = kb / 1024.0
-    return when {
-        mb >= 1.0 -> String.format(java.util.Locale.US, "%.1f MB", mb)
-        kb >= 1.0 -> String.format(java.util.Locale.US, "%.0f KB", kb)
-        else -> "$bytes B"
-    }
-}
 
 @Composable
 fun MessageContentRenderer(content: String) {
@@ -339,6 +301,14 @@ fun MessageContentRenderer(content: String) {
                         ChatImageCard(
                             source = block.source,
                             label = block.label
+                        )
+                    }
+                    is ContentBlock.FileAttachment -> {
+                        ChatFileCard(
+                            source = block.source,
+                            filename = block.filename,
+                            extension = block.extension,
+                            sizeBytes = block.sizeBytes
                         )
                     }
                     is ContentBlock.Code -> {

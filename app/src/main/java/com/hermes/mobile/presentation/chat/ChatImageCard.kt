@@ -53,22 +53,18 @@ sealed class ContentBlock {
     data class Text(val text: String) : ContentBlock()
     data class Code(val code: String, val language: String) : ContentBlock()
     data class Image(val source: String, val label: String?) : ContentBlock()
+    data class FileAttachment(
+        val source: String,
+        val filename: String,
+        val extension: String,
+        val sizeBytes: Long? = null
+    ) : ContentBlock()
 }
 
-private val COMBINED_IMAGE_REGEX = Regex(
-    """(!?\[([^\]]*?)\]\(\s*([^\s)]+)\s*\))|(?:MEDIA:\s*([^\s\n()]+))|(?<=^|[\s\n])((?:https?://|/(?:data|sdcard|storage)/|[a-zA-Z0-9_\-\./]*hermes-media/)[^\s\n()]+\.(?:png|jpg|jpeg|webp|gif|bmp|svg))(?=$|[\s\n])""",
+private val COMBINED_MEDIA_REGEX = Regex(
+    """(!?\[([^\]]*?)\]\(\s*([^\s)]+)\s*\))|(?:MEDIA:\s*([^\s\n()]+))|(?<=^|[\s\n])((?:https?://[^\s\n()]+/api/files/download\?[^\s\n()]+)|(?:https?://|/(?:data|sdcard|storage)/|[a-zA-Z0-9_\-\./]*hermes-media/)[^\s\n()]+\.(?:png|jpg|jpeg|webp|gif|bmp|svg|pdf|md|markdown|txt|log|json|csv|zip|tar|gz|apk))(?=$|[\s\n])""",
     RegexOption.IGNORE_CASE
 )
-
-fun isImageTarget(path: String): Boolean {
-    val clean = path.trim().substringBefore("?").lowercase()
-    val extensions = listOf(".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg")
-    return extensions.any { clean.endsWith(it) } ||
-           clean.contains("hermes-media") ||
-           clean.startsWith("data:image/") ||
-           clean.contains("/api/files/download") ||
-           path.startsWith("MEDIA:", ignoreCase = true)
-}
 
 fun parseMessageContent(content: String): List<ContentBlock> {
     val result = mutableListOf<ContentBlock>()
@@ -82,47 +78,60 @@ fun parseMessageContent(content: String): List<ContentBlock> {
             result.add(ContentBlock.Code(code = codeBody, language = language))
         } else {
             if (part.isNotBlank()) {
-                result.addAll(parseImagesFromText(part))
+                result.addAll(parseBlocksFromText(part))
             }
         }
     }
     return result
 }
 
-private fun parseImagesFromText(text: String): List<ContentBlock> {
+private fun parseBlocksFromText(text: String): List<ContentBlock> {
     val blocks = mutableListOf<ContentBlock>()
     var currentIndex = 0
-    val matches = COMBINED_IMAGE_REGEX.findAll(text)
+    val matches = COMBINED_MEDIA_REGEX.findAll(text)
 
     for (match in matches) {
         val markdownGroup = match.groups[1]
         val mediaGroup = match.groups[4]
         val standaloneGroup = match.groups[5]
 
-        val (target, label) = if (markdownGroup != null) {
-            val lbl = match.groups[2]?.value?.trim()
+        var createdBlock: ContentBlock? = null
+
+        if (markdownGroup != null) {
+            val isBang = match.value.startsWith("!")
+            val lbl = match.groups[2]?.value?.trim()?.ifBlank { null }
             val tgt = match.groups[3]?.value?.trim() ?: ""
-            if (isImageTarget(tgt)) {
-                tgt to (if (lbl.isNullOrBlank()) null else lbl)
-            } else {
-                null to null
+
+            if (isImageTarget(tgt, lbl)) {
+                createdBlock = ContentBlock.Image(source = tgt, label = lbl)
+            } else if (isBang || isFileTarget(tgt, lbl)) {
+                val (filename, ext) = extractFilenameAndExtension(tgt, lbl)
+                createdBlock = ContentBlock.FileAttachment(source = tgt, filename = filename, extension = ext)
             }
         } else if (mediaGroup != null) {
             val tgt = mediaGroup.value.trim()
-            tgt to null
+            if (isImageTarget(tgt)) {
+                createdBlock = ContentBlock.Image(source = tgt, label = null)
+            } else {
+                val (filename, ext) = extractFilenameAndExtension(tgt, null)
+                createdBlock = ContentBlock.FileAttachment(source = tgt, filename = filename, extension = ext)
+            }
         } else if (standaloneGroup != null) {
             val tgt = standaloneGroup.value.trim()
-            tgt to null
-        } else {
-            null to null
+            if (isImageTarget(tgt)) {
+                createdBlock = ContentBlock.Image(source = tgt, label = null)
+            } else if (isFileTarget(tgt)) {
+                val (filename, ext) = extractFilenameAndExtension(tgt, null)
+                createdBlock = ContentBlock.FileAttachment(source = tgt, filename = filename, extension = ext)
+            }
         }
 
-        if (target != null) {
+        if (createdBlock != null) {
             val textBefore = text.substring(currentIndex, match.range.first)
             if (textBefore.isNotBlank()) {
                 blocks.add(ContentBlock.Text(textBefore.trim()))
             }
-            blocks.add(ContentBlock.Image(source = target, label = label))
+            blocks.add(createdBlock)
             currentIndex = match.range.last + 1
         }
     }
@@ -163,13 +172,12 @@ fun resolveImageModel(source: String, label: String? = null, context: Context? =
             return uri
         }
 
-        // Fallback: системный content:// URI аннулирован Android после перезапуска процесса.
-        // Загружаем этот же файл из локального хранилища демона Termux (~/.hermes/attachments/<name>)
         val fallbackName = label?.trim()?.ifBlank { null }
             ?: cleanSource.substringAfterLast("/").substringBefore("?")
         val restUrl = try { HermesApp.instance.settingsManager.getRestUrl() } catch (e: Exception) { "http://127.0.0.1:8000/api" }
         val token = try { HermesApp.instance.settingsManager.getSessionToken() } catch (e: Exception) { "hermes_mobile_local" }
-        return "$restUrl/files/download?path=.hermes/attachments/$fallbackName&token=$token"
+        val baseUrl = restUrl.substringBefore("/api")
+        return "$baseUrl/api/files/download?path=.hermes/attachments/$fallbackName&token=$token"
     }
 
     // 1. Data URL
@@ -193,6 +201,16 @@ fun resolveImageModel(source: String, label: String? = null, context: Context? =
         return cleanSource
     }
 
+    // 2.1 Относительный API-путь /api/files/download
+    if (cleanSource.startsWith("/api/files/download") || cleanSource.startsWith("api/files/download")) {
+        val restUrl = try { HermesApp.instance.settingsManager.getRestUrl() } catch (e: Exception) { "http://127.0.0.1:8000/api" }
+        val baseUrl = restUrl.substringBefore("/api")
+        val token = try { HermesApp.instance.settingsManager.getSessionToken() } catch (e: Exception) { "hermes_mobile_local" }
+        val normalized = if (cleanSource.startsWith("/")) cleanSource else "/$cleanSource"
+        val sep = if (normalized.contains("?")) "&" else "?"
+        return if (!normalized.contains("token=")) "$baseUrl$normalized${sep}token=$token" else "$baseUrl$normalized"
+    }
+
     // 3. Локальные файлы на устройстве (песочница приложения /sdcard/ /data/...)
     if (cleanSource.startsWith("/")) {
         val file = File(cleanSource)
@@ -201,13 +219,14 @@ fun resolveImageModel(source: String, label: String? = null, context: Context? =
         }
     }
 
-    // 4. Hermes Termux-хранилище или относительный путь (e.g. /data/data/com.termux/files/home/... or hermes-media/...)
-    // Файлы демона недоступны напрямую из песочницы приложения — качаем через REST /files/download
+    // 4. Hermes Termux-хранилище или относительный путь (e.g. hermes-media/...)
     val restUrl = try { HermesApp.instance.settingsManager.getRestUrl() } catch (e: Exception) { "http://127.0.0.1:8000/api" }
+    val baseUrl = restUrl.substringBefore("/api")
     val token = try { HermesApp.instance.settingsManager.getSessionToken() } catch (e: Exception) { "hermes_mobile_local" }
     val encodedPath = URLEncoder.encode(cleanSource, "UTF-8")
-    return "$restUrl/files/download?path=$encodedPath&token=$token"
+    return "$baseUrl/api/files/download?path=$encodedPath&token=$token"
 }
+
 
 suspend fun saveImageToGallery(context: Context, model: Any, displayName: String): Boolean = withContext(Dispatchers.IO) {
     try {
