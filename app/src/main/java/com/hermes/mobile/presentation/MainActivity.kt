@@ -87,6 +87,18 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                LaunchedEffect(connectionState) {
+                    val statusText = when (connectionState) {
+                        ConnectionState.READY -> "Hermes готов к работе"
+                        ConnectionState.CONNECTING -> "Подключение к агенту..."
+                        ConnectionState.AUTHENTICATING -> "Аутентификация агента..."
+                        ConnectionState.RECONNECTING -> "Переподключение..."
+                        ConnectionState.FAILED -> "Связь с агентом прервана"
+                        ConnectionState.DISCONNECTED -> "Агент отключен"
+                    }
+                    HermesForegroundService.startService(this@MainActivity, statusText)
+                }
+
                 LaunchedEffect(Unit) {
                     chatViewModel.checkForUpdates(isManual = false)
                 }

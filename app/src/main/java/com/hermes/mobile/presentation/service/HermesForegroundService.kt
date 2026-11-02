@@ -15,14 +15,14 @@ import com.hermes.mobile.presentation.MainActivity
 class HermesForegroundService : Service() {
 
     companion object {
-        const val CHANNEL_ID = "hermes_foreground_service_channel"
+        const val CHANNEL_ID = "hermes_foreground_service_channel_v2"
         const val NOTIFICATION_ID = 1001
 
         const val ACTION_START = "ACTION_START"
         const val ACTION_STOP = "ACTION_STOP"
         const val EXTRA_STATUS = "EXTRA_STATUS"
 
-        fun startService(context: Context, statusText: String = "Hermes active in background") {
+        fun startService(context: Context, statusText: String = "Hermes активен (фоновый режим)") {
             try {
                 val intent = Intent(context, HermesForegroundService::class.java).apply {
                     action = ACTION_START
@@ -64,10 +64,12 @@ class HermesForegroundService : Service() {
             return START_NOT_STICKY
         }
 
-        val statusText = intent?.getStringExtra(EXTRA_STATUS) ?: "Hermes connected (127.0.0.1:8000)"
+        val statusText = intent?.getStringExtra(EXTRA_STATUS) ?: "Hermes активен (фоновый режим)"
         val notification = buildNotification(statusText)
         try {
             startForeground(NOTIFICATION_ID, notification)
+            val manager = getSystemService(NotificationManager::class.java)
+            manager?.notify(NOTIFICATION_ID, notification)
         } catch (e: Exception) {
             android.util.Log.w("HermesService", "Cannot start foreground notification: ${e.message}")
             stopSelf()
@@ -81,11 +83,13 @@ class HermesForegroundService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Hermes Agent Service",
-                NotificationManager.IMPORTANCE_LOW
+                "Hermes Any AI Background Service",
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Hermes local agent background status"
-                setShowBadge(false)
+                description = "Статус активности Hermes в строке состояния"
+                setSound(null, null)
+                enableVibration(false)
+                setShowBadge(true)
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
@@ -109,14 +113,27 @@ class HermesForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Hermes Agent (Termux)")
+        val largeIcon = try {
+            android.graphics.BitmapFactory.decodeResource(resources, com.hermes.mobile.R.mipmap.ic_launcher)
+        } catch (_: Exception) {
+            null
+        }
+
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Hermes Any AI")
             .setContentText(statusText)
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setSmallIcon(com.hermes.mobile.R.drawable.ic_stat_hermes)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setContentIntent(pendingOpen)
-            .addAction(android.R.drawable.ic_media_pause, "Stop", pendingStop)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
+            .addAction(android.R.drawable.ic_media_pause, "Остановить", pendingStop)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setColor(0xFF6366F1.toInt())
+
+        if (largeIcon != null) {
+            builder.setLargeIcon(largeIcon)
+        }
+
+        return builder.build()
     }
 }
