@@ -53,6 +53,17 @@ fun MessageBubble(
 ) {
     val isUser = message.role == MessageRole.USER
 
+    // G18: Не рендерим пустые пузыри ассистента без контента, рассуждений, вложений и активного стриминга/ошибки
+    if (!isUser &&
+        message.content.isBlank() &&
+        message.thinkingContent.isNullOrBlank() &&
+        message.attachments.isEmpty() &&
+        message.status != MessageStatus.STREAMING &&
+        message.status != MessageStatus.ERROR
+    ) {
+        return
+    }
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()

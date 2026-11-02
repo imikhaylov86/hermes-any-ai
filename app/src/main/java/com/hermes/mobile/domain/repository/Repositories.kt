@@ -67,5 +67,11 @@ interface ProviderRepository {
         apiKey: String,
         name: String = ""
     ): Result<EndpointTestResult>
+    suspend fun saveOnboardingProvider(
+        name: String,
+        baseUrl: String,
+        apiKey: String,
+        model: String
+    ): Result<Unit>
     suspend fun runDiagnostics(): DiagnosticsReport
 }

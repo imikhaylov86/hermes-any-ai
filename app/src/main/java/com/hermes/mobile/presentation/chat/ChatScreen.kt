@@ -164,6 +164,7 @@ fun ChatScreen(
     }
 
     val isStreaming = messages.any { it.status == MessageStatus.STREAMING }
+    val isSending by viewModel.isSending.collectAsState()
 
     // Кнопка вложений: сперва runtime-разрешение на медиа (Android 13+), затем пикер.
     // Без permission DocumentsUI не показывает локальные коллекции («Изображения» пусты).
@@ -545,22 +546,31 @@ fun ChatScreen(
                         }
                     } else {
                         val hasContent = inputText.isNotBlank() || attachedFiles.isNotEmpty()
+                        val canSend = hasContent && !isSending
                         IconButton(
                             onClick = { viewModel.sendMessage() },
-                            enabled = hasContent,
+                            enabled = canSend,
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(AppDimensions.ShapeButton)
                                 .background(
-                                    if (hasContent) PrimaryIndigo else MaterialTheme.colorScheme.surfaceVariant
+                                    if (canSend) PrimaryIndigo else MaterialTheme.colorScheme.surfaceVariant
                                 )
                         ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                contentDescription = strings.send,
-                                tint = if (hasContent) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                modifier = Modifier.size(20.dp)
-                            )
+                            if (isSending) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = strings.send,
+                                    tint = if (canSend) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }

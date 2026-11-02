@@ -347,6 +347,83 @@ class ProviderRepositoryImpl(
         return Result.success(newProvider)
     }
 
+    /**
+     * D15 (docs/07 §4 D15, G20): Персистентное сохранение провайдера, настроенного в визарде онбординга.
+     * Записывает API-ключи в KeystoreManager, активную модель и провайдера в AppSettingsManager,
+     * регистрирует провайдер в ProviderRepository, а также выполняет best-effort синхронизацию с демоном.
+     */
+    override suspend fun saveOnboardingProvider(
+        name: String,
+        baseUrl: String,
+        apiKey: String,
+        model: String
+    ): Result<Unit> {
+        val trimmedName = name.trim().take(16).ifBlank { "custom" }
+        val cleanId = "custom_${trimmedName.lowercase().replace(Regex("[^a-z0-9_]"), "_")}"
+        val effectiveModel = model.trim().ifBlank { trimmedName }
+        val trimmedBaseUrl = baseUrl.trim()
+        val trimmedKey = apiKey.trim()
+
+        // 1. Сохранение API-ключей в Android Keystore
+        if (trimmedKey.isNotBlank()) {
+            keystoreManager.encryptAndSave(cleanId, trimmedKey)
+            keystoreManager.encryptAndSave(trimmedName, trimmedKey)
+            keystoreManager.encryptAndSave("custom_${trimmedName.lowercase()}", trimmedKey)
+            keystoreManager.encryptAndSave("CUSTOM_API_KEY", trimmedKey)
+            keystoreManager.encryptAndSave("OPENAI_API_KEY", trimmedKey)
+            val keyEnv = keyEnvNameFor(trimmedName)
+            keystoreManager.encryptAndSave(keyEnv, trimmedKey)
+        }
+
+        // 2. Установка активной модели и провайдера в настройках и WebSocket клиенте
+        settingsManager.setActiveModelAndProvider(
+            model = effectiveModel,
+            providerId = cleanId,
+            providerName = trimmedName
+        )
+        webSocketClient.setActiveModel(effectiveModel, trimmedName)
+
+        // 3. Создание и добавление ProviderConfig в локальный репозиторий
+        val newProvider = ProviderConfig(
+            id = cleanId,
+            name = trimmedName,
+            status = if (trimmedKey.isNotBlank()) ProviderStatus.CONNECTED else ProviderStatus.AUTH_REQUIRED,
+            currentModel = effectiveModel,
+            availableModels = listOf(effectiveModel),
+            hasApiKey = trimmedKey.isNotBlank(),
+            baseUrl = trimmedBaseUrl,
+            apiMode = ProviderApiMode.OPENAI_COMPATIBLE,
+            isCustom = true
+        )
+        _providers.value = _providers.value.filterNot {
+            it.id == cleanId || it.id == trimmedName || it.name.equals(trimmedName, ignoreCase = true) || it.id == "custom_${trimmedName.lowercase()}"
+        } + newProvider
+
+        // 4. Best-effort регистрация в config.yaml и .env демона (если демон уже работает)
+        if (trimmedBaseUrl.isNotBlank()) {
+            try {
+                val keyEnv = keyEnvNameFor(trimmedName)
+                val configOk = restClient.registerProviderInConfig(
+                    name = trimmedName,
+                    baseUrl = trimmedBaseUrl,
+                    model = effectiveModel,
+                    keyEnv = keyEnv
+                )
+                if (configOk && trimmedKey.isNotBlank()) {
+                    restClient.putEnvVar(keyEnv, trimmedKey)
+                    restClient.putEnvVar("CUSTOM_API_KEY", trimmedKey)
+                    restClient.putEnvVar("OPENAI_API_KEY", trimmedKey)
+                    restClient.putEnvVar("OPENAI_BASE_URL", trimmedBaseUrl)
+                    restClient.putEnvVar("OPENAI_API_BASE", trimmedBaseUrl)
+                }
+            } catch (_: Exception) {
+                // Игнорируем недоступность демона на этапе онбординга
+            }
+        }
+
+        return Result.success(Unit)
+    }
+
     override suspend fun deleteProvider(providerId: String): Result<Unit> {
         val prov = _providers.value.firstOrNull { it.id == providerId || it.name.equals(providerId, ignoreCase = true) }
             ?: return Result.failure(Exception("Провайдер не найден"))

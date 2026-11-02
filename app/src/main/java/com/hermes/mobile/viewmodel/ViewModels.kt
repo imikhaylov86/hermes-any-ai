@@ -59,10 +59,55 @@ class ChatViewModel(
     val isProvidersLoading: StateFlow<Boolean> = providerRepository.isLoading
     val providersError: StateFlow<String?> = providerRepository.error
 
+    private val _isSending = MutableStateFlow(false)
+    val isSending: StateFlow<Boolean> = _isSending.asStateFlow()
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val messages: StateFlow<List<ChatMessage>> = _activeSessionId
+        .flatMapLatest { sessionId -> chatRepository.getMessagesFlow(sessionId) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val pendingApprovals: StateFlow<List<ToolApprovalRequest>> = chatRepository.getPendingApprovalsFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val pendingClarifies: StateFlow<List<ClarifyPrompt>> = chatRepository.getPendingClarifiesFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val inputText = MutableStateFlow("")
+    val attachedFiles = MutableStateFlow<List<Attachment>>(emptyList())
+
+    // Хранилище неотправленных черновиков сообщений и вложений для каждой сессии
+    private val sessionDrafts = mutableMapOf<String, Pair<String, List<Attachment>>>()
+
+    private var lastSyncAt = 0L
+
     init {
         refreshProviders()
         initActiveSession()
         observeConnectionForSync()
+        observeSendingState()
+    }
+
+    private fun observeSendingState() {
+        viewModelScope.launch {
+            messages.collect { msgList ->
+                if (_isSending.value) {
+                    val hasStreaming = msgList.any { it.status == MessageStatus.STREAMING }
+                    val lastMsg = msgList.lastOrNull()
+                    if (!hasStreaming && lastMsg != null && lastMsg.role == MessageRole.ASSISTANT &&
+                        (lastMsg.status == MessageStatus.COMPLETE || lastMsg.status == MessageStatus.ERROR)) {
+                        _isSending.value = false
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            connectionState.collect { state ->
+                if (state == ConnectionState.DISCONNECTED || state == ConnectionState.FAILED) {
+                    _isSending.value = false
+                }
+            }
+        }
     }
 
     /**
@@ -72,7 +117,6 @@ class ChatViewModel(
      * Сам метод проверяет health демона и завершается быстро, если демона нет.
      * Защищено от повторов — не чаще раза в 30 секунд.
      */
-    private var lastSyncAt = 0L
     private fun observeConnectionForSync() {
         viewModelScope.launch {
             connectionState.collect { state ->
@@ -122,23 +166,6 @@ class ChatViewModel(
         }
     }
 
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val messages: StateFlow<List<ChatMessage>> = _activeSessionId
-        .flatMapLatest { sessionId -> chatRepository.getMessagesFlow(sessionId) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val pendingApprovals: StateFlow<List<ToolApprovalRequest>> = chatRepository.getPendingApprovalsFlow()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val pendingClarifies: StateFlow<List<ClarifyPrompt>> = chatRepository.getPendingClarifiesFlow()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val inputText = MutableStateFlow("")
-    val attachedFiles = MutableStateFlow<List<Attachment>>(emptyList())
-
-    // Хранилище неотправленных черновиков сообщений и вложений для каждой сессии
-    private val sessionDrafts = mutableMapOf<String, Pair<String, List<Attachment>>>()
-
     fun selectSession(sessionId: String) {
         val prevSession = _activeSessionId.value
         if (prevSession.isNotBlank()) {
@@ -184,18 +211,44 @@ class ChatViewModel(
             return
         }
 
+        if (_isSending.value) return // G18: Debounce and prevent double send
+
         val currentSession = _activeSessionId.value
         sessionDrafts.remove(currentSession) // Очищаем черновик после отправки
+        _isSending.value = true
+        // Страховочный таймаут на случай потери сетевого ответа без закрытия соединения
         viewModelScope.launch {
-            chatRepository.sendMessage(currentSession, text, attachments)
-            inputText.value = ""
-            attachedFiles.value = emptyList()
+            kotlinx.coroutines.delay(45_000)
+            if (_isSending.value) {
+                _isSending.value = false
+            }
+        }
+        viewModelScope.launch {
+            try {
+                chatRepository.sendMessage(currentSession, text, attachments)
+                inputText.value = ""
+                attachedFiles.value = emptyList()
+            } catch (e: Exception) {
+                _isSending.value = false
+            }
         }
     }
 
     fun retryMessage(messageId: String) {
+        if (_isSending.value) return
+        _isSending.value = true
         viewModelScope.launch {
-            chatRepository.retryTurn(_activeSessionId.value, messageId)
+            kotlinx.coroutines.delay(45_000)
+            if (_isSending.value) {
+                _isSending.value = false
+            }
+        }
+        viewModelScope.launch {
+            try {
+                chatRepository.retryTurn(_activeSessionId.value, messageId)
+            } catch (e: Exception) {
+                _isSending.value = false
+            }
         }
     }
 
@@ -277,6 +330,7 @@ class ChatViewModel(
     }
 
     fun stopGeneration() {
+        _isSending.value = false
         viewModelScope.launch {
             chatRepository.stopGeneration(_activeSessionId.value)
         }

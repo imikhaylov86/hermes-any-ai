@@ -163,12 +163,33 @@ class ChatRepositoryImpl(
         return lower.contains("api call failed") ||
                 lower.contains("api failed after") ||
                 lower.contains("http 503") ||
+                lower.contains("503") ||
+                lower.contains("429") ||
+                lower.contains("maintenance") ||
+                lower.contains("короткое обновление") ||
+                lower.contains("source_temporarily_unavailable") ||
+                lower.contains("upstream_error") ||
+                lower.contains("error generating response") ||
                 lower.contains("источник модели временно недоступен") ||
                 lower.contains("internalservererror") ||
                 lower.contains("ratelimiterror") ||
                 lower.contains("authenticationerror") ||
                 text.startsWith("❌") ||
                 text.startsWith("⚠️ API call failed")
+    }
+
+    private fun formatUserFriendlyErrorMessage(raw: String): String {
+        val lower = raw.lowercase()
+        return when {
+            lower.contains("maintenance") || lower.contains("короткое обновление") ->
+                "Шлюз модели находится на коротком обновлении. Пожалуйста, повторите запрос через несколько секунд."
+            lower.contains("source_temporarily_unavailable") || lower.contains("источник модели временно недоступен") ->
+                "Источник модели временно недоступен (503). Пожалуйста, повторите запрос через несколько секунд."
+            lower.contains("429") || lower.contains("ratelimit") ->
+                "Превышен лимит запросов к модели (HTTP 429). Повторите запрос позже."
+            raw.isNotBlank() -> raw
+            else -> "Ошибка генерации ответа моделью."
+        }
     }
 
     private fun extractThinkingAndContent(raw: String): Pair<String?, String> {
@@ -262,6 +283,7 @@ class ChatRepositoryImpl(
                             isApiError && !finalThinking.isNullOrBlank() -> finalThinking
                             else -> null
                         }
+                        val friendlyError = errorDetail?.let { formatUserFriendlyErrorMessage(it) }
 
                         val entity = MessageEntity(
                             id = event.messageId,
@@ -271,7 +293,7 @@ class ChatRepositoryImpl(
                             thinkingContent = if (isApiError) null else finalThinking?.ifBlank { null },
                             timestampEpochMs = System.currentTimeMillis(),
                             status = if (isApiError) MessageStatus.ERROR.name else MessageStatus.COMPLETE.name,
-                            errorMessage = errorDetail
+                            errorMessage = friendlyError
                         )
                         messageDao.insertMessage(entity)
 
@@ -716,7 +738,33 @@ class ChatRepositoryImpl(
         }
 
         if (userMsg != null) {
-            sendMessage(sessionId, userMsg.content, userMsg.attachments)
+            // G18 (04 §D9): Не создаем дубликат пользовательского сообщения в Room DB при повторе!
+            stoppedSessionIds.remove(sessionId)
+            stoppedSessionIds.remove("sess_main")
+            stoppedMessageIds.clear()
+
+            if (settingsManager.isDemoMode.value) {
+                handleDemoModeMessage(sessionId, userMsg.content)
+                return
+            }
+
+            val attachDtos = userMsg.attachments.map {
+                AttachmentDto(
+                    name = it.name,
+                    mimeType = it.mimeType,
+                    uriOrPath = it.uriOrPath,
+                    sizeBytes = it.sizeBytes,
+                    dataUrl = it.dataUrl
+                )
+            }
+
+            val assistantMsgId = "msg_asst_${System.currentTimeMillis()}"
+            webSocketClient.sendMessage(
+                messageId = assistantMsgId,
+                sessionId = sessionId,
+                content = userMsg.content,
+                attachments = attachDtos
+            )
         }
     }
 

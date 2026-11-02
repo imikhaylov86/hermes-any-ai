@@ -2,6 +2,8 @@ package com.hermes.mobile.presentation.onboarding
 
 import android.app.Activity
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -45,6 +47,7 @@ import com.hermes.mobile.presentation.theme.PrimaryIndigo
 import com.hermes.mobile.transport.auth.RemotePairingHelper
 import com.hermes.mobile.transport.termux.TermuxRunner
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 enum class WizardStep {
     WELCOME,
@@ -162,18 +165,29 @@ fun OnboardingDialog(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val appStrings = strings
+    val coroutineScope = rememberCoroutineScope()
 
     var currentStep by remember { mutableStateOf(WizardStep.WELCOME) }
     var isTermuxInstalled by remember { mutableStateOf(TermuxRunner.isTermuxInstalled(context)) }
+    var hasRunCommandPermission by remember { mutableStateOf(TermuxRunner.hasRunCommandPermission(context)) }
+
+    // G21 (D16): нативный launcher для запроса разрешения RUN_COMMAND без ПК и ADB
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasRunCommandPermission = isGranted
+    }
+
     // G15 (docs/08 §2.8): первичная конфигурация провайдера — до установки
     var providerConfig by remember { mutableStateOf(OnboardingProviderConfig()) }
 
-    // Автоматическая проверка при возврате в приложение из Termux / браузера (ON_RESUME)
+    // Автоматическая проверка при возврате в приложение из Termux / браузера / настроек (ON_RESUME)
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 isTermuxInstalled = TermuxRunner.isTermuxInstalled(context)
+                hasRunCommandPermission = TermuxRunner.hasRunCommandPermission(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -182,13 +196,17 @@ fun OnboardingDialog(
         }
     }
 
-    // Фоновый периодический опрос статуса установки окружения
+    // Фоновый периодический опрос статуса установки окружения и разрешений
     LaunchedEffect(Unit) {
         while (true) {
             delay(2000)
             val updatedTermux = TermuxRunner.isTermuxInstalled(context)
             if (updatedTermux != isTermuxInstalled) {
                 isTermuxInstalled = updatedTermux
+            }
+            val updatedPerm = TermuxRunner.hasRunCommandPermission(context)
+            if (updatedPerm != hasRunCommandPermission) {
+                hasRunCommandPermission = updatedPerm
             }
         }
     }
@@ -339,9 +357,17 @@ fun OnboardingDialog(
                                 WizardStep.TERMUX_CHECK -> {
                                     TermuxCheckStepContent(
                                         isTermuxInstalled = isTermuxInstalled,
+                                        hasRunCommandPermission = hasRunCommandPermission,
+                                        onRequestRunCommandPermission = {
+                                            permissionLauncher.launch(TermuxRunner.PERMISSION_RUN_COMMAND)
+                                        },
+                                        onOpenPermissions = {
+                                            TermuxRunner.openAppPermissions(context)
+                                        },
                                         onDownloadFDroid = { TermuxRunner.openTermuxDownloadPage(context) },
                                         onCheckAgain = {
                                             isTermuxInstalled = TermuxRunner.isTermuxInstalled(context)
+                                            hasRunCommandPermission = TermuxRunner.hasRunCommandPermission(context)
                                             Toast.makeText(
                                                 context,
                                                 if (isTermuxInstalled) appStrings.onboardingTermuxDetected else appStrings.onboardingTermuxNotInstalled,
@@ -352,13 +378,26 @@ fun OnboardingDialog(
                                     )
                                 }
                                 WizardStep.PROVIDER_CONFIG -> {
-                                    // G15 (docs/08 §2.8): конфиг провайдера ДО установки —
-                                    // демон стартует с рабочим провайдером, wizard агента не запускается
+                                    // G15 (docs/08 §2.8), G20 (docs/07 §3 G20, D15): сохранение провайдера в Keystore + Settings + Providers
                                     ProviderConfigStepContent(
                                         config = providerConfig,
                                         onConfigChange = { providerConfig = it },
                                         onBack = { currentStep = WizardStep.TERMUX_CHECK },
-                                        onNext = { currentStep = WizardStep.TERMUX_SETUP }
+                                        onNext = {
+                                            coroutineScope.launch {
+                                                try {
+                                                    com.hermes.mobile.HermesApp.instance.providerRepository.saveOnboardingProvider(
+                                                        name = providerConfig.name,
+                                                        baseUrl = providerConfig.baseUrl,
+                                                        apiKey = providerConfig.apiKey,
+                                                        model = providerConfig.model
+                                                    )
+                                                } catch (e: Exception) {
+                                                    android.util.Log.e("OnboardingDialog", "Failed to save onboarding provider", e)
+                                                }
+                                                currentStep = WizardStep.TERMUX_SETUP
+                                            }
+                                        }
                                     )
                                 }
                                 WizardStep.TERMUX_SETUP -> {
@@ -366,6 +405,14 @@ fun OnboardingDialog(
                                     var isMonitoring by remember { mutableStateOf(false) }
                                     var probeLevel by remember { mutableStateOf<Int?>(null) }
                                     var daemonLogTail by remember { mutableStateOf<String?>(null) }
+
+                                    // D12: автоматический переход на шаг запуска при фиксации готовности демона
+                                    LaunchedEffect(probeLevel) {
+                                        if (probeLevel == 0) {
+                                            delay(1000)
+                                            currentStep = WizardStep.TERMUX_LAUNCH
+                                        }
+                                    }
 
                                     fun runProbe() {
                                         TermuxRunner.probeHermesEnvironment(
@@ -783,6 +830,9 @@ private fun WelcomeStepContent(
 @Composable
 private fun TermuxCheckStepContent(
     isTermuxInstalled: Boolean,
+    hasRunCommandPermission: Boolean,
+    onRequestRunCommandPermission: () -> Unit,
+    onOpenPermissions: () -> Unit,
     onDownloadFDroid: () -> Unit,
     onCheckAgain: () -> Unit,
     onNext: () -> Unit
@@ -842,7 +892,7 @@ private fun TermuxCheckStepContent(
                     color = if (isTermuxInstalled) AccentEmerald else AccentRose
                 )
                 Text(
-                    text = if (isTermuxInstalled) "Окружение готово к следующему шагу" else "Требуется установка приложения Termux",
+                    text = if (isTermuxInstalled) "Окружение Termux установлено на устройстве" else "Требуется установка приложения Termux",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -920,14 +970,92 @@ private fun TermuxCheckStepContent(
             }
         }
     } else {
-        // Если Termux установлен — кнопка перехода к шагу 2
+        // G21 (docs/05 §Zero-ADB, docs/07 §3 G21, D16): Карточка статуса разрешения RUN_COMMAND
+        Surface(
+            shape = AppDimensions.ShapeCard,
+            color = if (hasRunCommandPermission) AccentEmerald.copy(alpha = 0.1f) else Color(0xFFF59E0B).copy(alpha = 0.12f),
+            border = BorderStroke(1.dp, if (hasRunCommandPermission) AccentEmerald.copy(alpha = 0.35f) else Color(0xFFF59E0B).copy(alpha = 0.35f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(if (hasRunCommandPermission) AccentEmerald else Color(0xFFF59E0B)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (hasRunCommandPermission) Icons.Default.Check else Icons.Default.Security,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (hasRunCommandPermission) "Разрешение RUN_COMMAND: выдано" else "Разрешение на запуск команд",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (hasRunCommandPermission) AccentEmerald else Color(0xFFD97706)
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = if (hasRunCommandPermission)
+                            "Приложение может запускать и контролировать демон в фоне без ПК"
+                        else
+                            "Необходимо для фонового запуска демона Hermes прямо из приложения",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+        }
+
+        if (!hasRunCommandPermission) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onRequestRunCommandPermission,
+                    modifier = Modifier.weight(1f).height(42.dp),
+                    shape = AppDimensions.ShapeButton,
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryIndigo)
+                ) {
+                    Icon(Icons.Default.VpnKey, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Выдать доступ", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+                OutlinedButton(
+                    onClick = onOpenPermissions,
+                    modifier = Modifier.height(42.dp),
+                    shape = AppDimensions.ShapeButton
+                ) {
+                    Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Настройки", fontSize = 12.sp)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Кнопка перехода к шагу 2 (Конфигурация AI-провайдера)
         Button(
             onClick = onNext,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp),
             shape = AppDimensions.ShapeButton,
-            colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald)
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (hasRunCommandPermission) AccentEmerald else PrimaryIndigo
+            )
         ) {
             Text(
                 text = "${appStrings.onboardingWizardNextStep} →",
