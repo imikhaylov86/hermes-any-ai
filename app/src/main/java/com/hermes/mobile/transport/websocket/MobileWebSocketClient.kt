@@ -237,18 +237,20 @@ class MobileWebSocketClient(
                         Log.i(tag, "WebSocket onOpen (auth=${if (useQueryFallback) "query-fallback" else "header"}) to ${cleanUrlForLog(endpointUrl)}")
                         webSocket = ws
                         backoffMs = 1000L
-                        _connectionState.value = ConnectionState.AUTHENTICATING
                         if (endpointUrl.contains("/api/ws")) {
                             val sid = hermesSessionId
                             if (sid != null) {
-                                // G4 (03 §D9г): возобновляем существующую серверную сессию через session.resume,
-                                // чтобы привязать текущий живой WebSocket к сессии на демоне
-                                Log.i(tag, "Resuming existing hermes session $sid via session.resume")
-                                sendSessionResume(sid)
+                                Log.i(tag, "Hermes session $sid already established, transitioning to READY")
+                                _connectionState.value = ConnectionState.READY
+                                scope.launch {
+                                    _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = sid, activeModel = activeModel ?: ""))
+                                }
                             } else {
+                                _connectionState.value = ConnectionState.AUTHENTICATING
                                 sendSessionCreate()
                             }
                         } else {
+                            _connectionState.value = ConnectionState.AUTHENTICATING
                             sendHello()
                         }
                     }
@@ -422,8 +424,12 @@ class MobileWebSocketClient(
         Log.i(tag, "Switched session to chat=$sessionId, hermesSessionId=${targetSid?.take(8) ?: "null"}")
         if (webSocket != null && endpointUrl.contains("/api/ws")) {
             if (targetSid != null) {
-                sendSessionResume(targetSid)
+                _connectionState.value = ConnectionState.READY
+                scope.launch {
+                    _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = targetSid, activeModel = activeModel ?: ""))
+                }
             } else {
+                _connectionState.value = ConnectionState.AUTHENTICATING
                 sendSessionCreate()
             }
         }
@@ -565,17 +571,25 @@ class MobileWebSocketClient(
                         return@launch
                     }
 
-                    // Проверяем события event
+                    // Проверяем события event или прямые методы
                     val method = root["method"]?.jsonPrimitive?.contentOrNull
-                    if (method == "event") {
-                        val params = root["params"]?.jsonObject
-                        val type = params?.get("type")?.jsonPrimitive?.contentOrNull ?: ""
-                        val payload = params?.get("payload")?.jsonObject
+                    val params = root["params"]?.jsonObject
+                    val eventType = if (method == "event") {
+                        params?.get("type")?.jsonPrimitive?.contentOrNull ?: ""
+                    } else {
+                        method ?: ""
+                    }
+                    val payload = if (method == "event") {
+                        params?.get("payload")?.jsonObject ?: params
+                    } else {
+                        params
+                    }
 
-                        when (type) {
+                    if (method == "event" || eventType.isNotBlank()) {
+                        when (eventType) {
                             "gateway.ready" -> {
                                 _connectionState.value = ConnectionState.READY
-                                _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = "", activeModel = ""))
+                                _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = hermesSessionId ?: "", activeModel = activeModel ?: ""))
                             }
                             "session.created", "session.resumed" -> {
                                 val sid = payload?.get("session_id")?.jsonPrimitive?.contentOrNull
@@ -597,6 +611,9 @@ class MobileWebSocketClient(
                                 activeStreamSequence = 0
                             }
                             "thinking.delta", "reasoning.delta" -> {
+                                if (_connectionState.value != ConnectionState.READY) {
+                                    _connectionState.value = ConnectionState.READY
+                                }
                                 val msgId = currentMessageId ?: "msg_${System.currentTimeMillis()}"
                                 if (isGenerationStopped || stoppedMessageIds.contains(msgId)) {
                                     return@launch
@@ -624,6 +641,9 @@ class MobileWebSocketClient(
                                 }
                             }
                             "message.delta" -> {
+                                if (_connectionState.value != ConnectionState.READY) {
+                                    _connectionState.value = ConnectionState.READY
+                                }
                                 val msgId = currentMessageId ?: "msg_${System.currentTimeMillis()}"
                                 if (isGenerationStopped || stoppedMessageIds.contains(msgId)) {
                                     return@launch
@@ -649,6 +669,9 @@ class MobileWebSocketClient(
                                 }
                             }
                             "message.complete" -> {
+                                if (_connectionState.value != ConnectionState.READY) {
+                                    _connectionState.value = ConnectionState.READY
+                                }
                                 val msgId = currentMessageId ?: "msg_${System.currentTimeMillis()}"
                                 if (isGenerationStopped || stoppedMessageIds.contains(msgId)) {
                                     return@launch
@@ -700,13 +723,15 @@ class MobileWebSocketClient(
                                 _incomingEvents.emit(WebSocketIncomingEvent.Approval(domainReq))
                             }
                         }
-                        return@launch
+                        if (eventType.isNotBlank()) {
+                            return@launch
+                        }
                     }
                 }
 
                 // 2. Fallback для прямого формата событий (flat event format)
                 val type = when {
-                    text.contains("\"server_ready\"") -> "server_ready"
+                    text.contains("\"server_ready\"") || text.contains("\"gateway.ready\"") -> "server_ready"
                     text.contains("\"stream_chunk\"") -> "stream_chunk"
                     text.contains("\"message_complete\"") -> "message_complete"
                     text.contains("\"tool_approval_request\"") -> "tool_approval_request"
@@ -784,7 +809,7 @@ class MobileWebSocketClient(
                 fileRefs.add("@file:.hermes/attachments/${att.name}")
             }
 
-            val appEnvDirective = "[Инструкция среды: Клиент Hermes Any AI. Веди диалог напрямую здесь. НЕ отправляй сообщения или файлы через Telegram send_message без явной просьбы пользователя. Если генерируешь или редактируешь изображение, верни его путь отдельной строкой формата MEDIA:/полный/путь/к/файлу]"
+            val appEnvDirective = "[Инструкция среды: Клиент Hermes Any AI. Веди диалог напрямую здесь. НЕ отправляй сообщения или файлы через Telegram send_message без явной просьбы пользователя. Если генерируешь или создаёшь файл, документ или изображение, верни его путь отдельной строкой формата MEDIA:/полный/путь/к/файлу или ссылкой формата [имя_файла](MEDIA:/полный/путь/к/файлу)]"
 
             val userText = content.trim()
             val effectiveText = when {

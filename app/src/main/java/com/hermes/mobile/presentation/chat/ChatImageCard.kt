@@ -155,7 +155,15 @@ fun resolveImageModel(source: String, label: String? = null, context: Context? =
 
     // 0. Android content:// or file:// URI (локальные вложения с устройства)
     if (cleanSource.startsWith("file://")) {
-        return android.net.Uri.parse(cleanSource)
+        val path = cleanSource.removePrefix("file://")
+        if (File(path).canRead()) {
+            return android.net.Uri.parse(cleanSource)
+        }
+        val restUrl = try { HermesApp.instance.settingsManager.getRestUrl() } catch (e: Exception) { "http://127.0.0.1:8000/api" }
+        val baseUrl = restUrl.substringBefore("/api")
+        val token = try { HermesApp.instance.settingsManager.getSessionToken() } catch (e: Exception) { "hermes_mobile_local" }
+        val encodedPath = URLEncoder.encode(path, "UTF-8")
+        return "$baseUrl/api/files/download?path=$encodedPath&token=$token"
     }
 
     if (cleanSource.startsWith("content://")) {
@@ -245,34 +253,19 @@ suspend fun saveImageToGallery(context: Context, model: Any, displayName: String
                 context.contentResolver.openInputStream(model)?.use { it.readBytes() } ?: return@withContext false
             }
             is String -> {
+                var loadedBytes: ByteArray? = null
                 if (model.startsWith("content://") || model.startsWith("file://")) {
-                    val u = android.net.Uri.parse(model)
-                    context.contentResolver.openInputStream(u)?.use { it.readBytes() } ?: return@withContext false
-                } else if (model.startsWith("http://") || model.startsWith("https://")) {
-                    val token = try { HermesApp.instance.settingsManager.getSessionToken() } catch (e: Exception) { "hermes_mobile_local" }
-                    val client = OkHttpClient.Builder()
-                        .connectTimeout(15, TimeUnit.SECONDS)
-                        .readTimeout(30, TimeUnit.SECONDS)
-                        .build()
-                    val req = Request.Builder()
-                        .url(model)
-                        .header("X-Hermes-Session-Token", token)
-                        .header("Authorization", "Bearer $token")
-                        .build()
-                    client.newCall(req).execute().use { resp ->
-                        if (!resp.isSuccessful) {
-                            Log.e("HermesImage", "HTTP download failed with code ${resp.code}")
-                            return@withContext false
-                        }
-                        resp.body?.bytes() ?: return@withContext false
+                    try {
+                        val u = android.net.Uri.parse(model)
+                        loadedBytes = context.contentResolver.openInputStream(u)?.use { it.readBytes() }
+                    } catch (e: Exception) {
+                        Log.w("HermesImage", "Failed reading Uri $model: ${e.message}")
                     }
-                } else if (model.startsWith("/sdcard/") || model.startsWith("/storage/")) {
-                    val f = File(model)
-                    if (f.exists() && f.canRead()) f.readBytes() else return@withContext false
-                } else {
-                    Log.e("HermesImage", "Unsupported model string: $model")
-                    return@withContext false
                 }
+                if (loadedBytes == null) {
+                    loadedBytes = fetchFileBytes(context, model, displayName)
+                }
+                loadedBytes ?: return@withContext false
             }
             else -> {
                 Log.e("HermesImage", "Unsupported model type: ${model.javaClass}")

@@ -291,7 +291,14 @@ class AppSettingsManager(context: Context) {
         return "$cleanUrl/api"
     }
 
+    private var recoveredSessionToken: String? = null
+
+    fun updateSessionToken(token: String) {
+        recoveredSessionToken = token
+    }
+
     fun getSessionToken(): String {
+        recoveredSessionToken?.let { if (it.isNotBlank()) return it }
         // G3 (03 §D6): токен берётся из query только для ручных remote-URL (QR-паринг);
         // loopback по умолчанию использует фиксированный hermes_mobile_local в заголовке.
         val wsUrl = _serverUrl.value

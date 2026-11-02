@@ -895,4 +895,28 @@ class DashboardRestClient(
             Result.failure(e)
         }
     }
+
+    /**
+     * G16: Скачивание файлов и вложений из Termux по GET /api/files/download?path=<path>.
+     * Поддерживает любые пути (относительные к attachments, домашней папке Termux или абсолютные).
+     */
+    suspend fun downloadFile(path: String): Result<ByteArray> = withContext(Dispatchers.IO) {
+        try {
+            val encodedPath = java.net.URLEncoder.encode(path.trim(), "UTF-8")
+            val request = newRequestBuilder("/files/download?path=$encodedPath")
+                .get()
+                .build()
+
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    return@withContext Result.failure(Exception("Download failed with HTTP ${resp.code}: ${resp.message}"))
+                }
+                val bytes = resp.body?.bytes()
+                    ?: return@withContext Result.failure(Exception("Empty response body"))
+                Result.success(bytes)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

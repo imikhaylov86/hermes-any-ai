@@ -22,9 +22,12 @@ import com.hermes.mobile.presentation.session.SessionDrawerContent
 import com.hermes.mobile.presentation.theme.HermesMobileTheme
 import com.hermes.mobile.viewmodel.ChatViewModel
 import com.hermes.mobile.viewmodel.SessionViewModel
+import com.hermes.mobile.presentation.service.NotificationHelper
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+
+    private var chatViewModel: ChatViewModel? = null
 
     private val requestNotificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -42,18 +45,23 @@ class MainActivity : ComponentActivity() {
 
         // Запуск фоновой службы агента
         checkAndStartForegroundService()
-        handleIntent(intent)
 
         val app = HermesApp.instance
-        val chatViewModel = ChatViewModel(
+        val targetSessionFromIntent = intent?.getStringExtra(NotificationHelper.EXTRA_SESSION_ID)
+        val vm = ChatViewModel(
             chatRepository = app.chatRepository,
             sessionRepository = app.sessionRepository,
             settingsManager = app.settingsManager,
             keystoreManager = app.keystoreManager,
             webSocketClient = app.webSocketClient,
             providerRepository = app.providerRepository,
-            restClient = app.restClient
+            restClient = app.restClient,
+            initialSessionId = targetSessionFromIntent
         )
+        chatViewModel = vm
+        val chatViewModel = vm
+        handleIntent(intent)
+
         val sessionViewModel = SessionViewModel(app.sessionRepository)
 
         setContent {
@@ -275,12 +283,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         handleIntent(intent)
     }
 
     private fun handleIntent(intent: Intent?) {
-        if (intent?.getStringExtra("action") == "start_termux_daemon") {
+        if (intent == null) return
+        if (intent.getStringExtra("action") == "start_termux_daemon") {
             com.hermes.mobile.transport.termux.TermuxRunner.startHermesDaemonInBackground(this)
+        }
+        val targetSessionId = intent.getStringExtra(NotificationHelper.EXTRA_SESSION_ID)
+        if (!targetSessionId.isNullOrBlank()) {
+            chatViewModel?.selectSession(targetSessionId)
         }
     }
 
@@ -296,5 +310,10 @@ class MainActivity : ComponentActivity() {
         } else {
             HermesForegroundService.startService(this)
         }
+    }
+
+    override fun onDestroy() {
+        chatViewModel = null
+        super.onDestroy()
     }
 }

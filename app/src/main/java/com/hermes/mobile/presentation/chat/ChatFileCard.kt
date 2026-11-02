@@ -177,7 +177,16 @@ fun resolveFileUrl(source: String): String {
     val token = try { HermesApp.instance.settingsManager.getSessionToken() } catch (e: Exception) { "hermes_mobile_local" }
     val baseUrl = restUrl.substringBefore("/api")
 
-    if (cleanSource.startsWith("file://") || cleanSource.startsWith("content://")) {
+    if (cleanSource.startsWith("file://")) {
+        val path = cleanSource.removePrefix("file://")
+        if (File(path).canRead()) {
+            return cleanSource
+        }
+        val encoded = URLEncoder.encode(path, "UTF-8")
+        return "$baseUrl/api/files/download?path=$encoded&token=$token"
+    }
+
+    if (cleanSource.startsWith("content://")) {
         return cleanSource
     }
 
@@ -201,43 +210,123 @@ fun resolveFileUrl(source: String): String {
     }
 
     if (cleanSource.startsWith("/sdcard/") || cleanSource.startsWith("/storage/")) {
-        return cleanSource
+        val f = File(cleanSource)
+        if (f.exists() && f.canRead()) {
+            return cleanSource
+        }
     }
 
     val encoded = URLEncoder.encode(cleanSource, "UTF-8")
     return "$baseUrl/api/files/download?path=$encoded&token=$token"
 }
 
-suspend fun fetchFileBytes(context: Context, source: String): ByteArray? = withContext(Dispatchers.IO) {
+suspend fun fetchFileBytes(
+    context: Context,
+    source: String,
+    fallbackFilename: String? = null
+): ByteArray? = withContext(Dispatchers.IO) {
     try {
-        val clean = source.trim()
-        if (clean.startsWith("content://") || clean.startsWith("file://")) {
-            val uri = Uri.parse(clean)
-            return@withContext context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        }
-        if (clean.startsWith("/sdcard/") || clean.startsWith("/storage/") || (clean.startsWith("/") && File(clean).exists())) {
-            val file = File(clean)
-            if (file.exists() && file.canRead()) return@withContext file.readBytes()
-        }
-        val fullUrl = resolveFileUrl(clean)
-        val token = try { HermesApp.instance.settingsManager.getSessionToken() } catch (e: Exception) { "hermes_mobile_local" }
-        val client = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .build()
-        val req = Request.Builder()
-            .url(fullUrl)
-            .header("X-Hermes-Session-Token", token)
-            .header("Authorization", "Bearer $token")
-            .build()
-        client.newCall(req).execute().use { resp ->
-            if (resp.isSuccessful) {
-                resp.body?.bytes()
-            } else {
-                Log.e("HermesFile", "HTTP fetch failed: ${resp.code} for $fullUrl")
-                null
+        val clean = source.trim().trim('(', ')').removePrefix("MEDIA:").trim()
+        val baseName = fallbackFilename?.trim()?.ifBlank { null }
+            ?: extractFilenameAndExtension(clean).first.takeIf { it.isNotBlank() && it != "file" && it != "download" }
+
+        // 1. Android content:// URI
+        if (clean.startsWith("content://")) {
+            try {
+                val uri = Uri.parse(clean)
+                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                if (bytes != null && bytes.isNotEmpty()) {
+                    return@withContext bytes
+                }
+            } catch (e: Exception) {
+                Log.w("HermesFile", "Failed reading content URI $clean, will try server download", e)
             }
         }
+
+        // 2. Android file:// URI or local file path
+        if (clean.startsWith("file://")) {
+            val path = clean.removePrefix("file://")
+            val f = File(path)
+            if (f.exists() && f.canRead()) {
+                try {
+                    return@withContext f.readBytes()
+                } catch (e: Exception) {
+                    Log.w("HermesFile", "Failed reading local file $path", e)
+                }
+            }
+        } else if (clean.startsWith("/sdcard/") || clean.startsWith("/storage/") || (clean.startsWith("/") && File(clean).canRead())) {
+            val f = File(clean)
+            if (f.exists() && f.canRead()) {
+                try {
+                    return@withContext f.readBytes()
+                } catch (e: Exception) {
+                    Log.w("HermesFile", "Failed reading local file $clean", e)
+                }
+            }
+        }
+
+        // 3. Try downloading via DashboardRestClient with candidate paths
+        val restClient = try { HermesApp.instance.restClient } catch (e: Exception) { null }
+        if (restClient != null) {
+            val candidatePaths = mutableListOf<String>()
+            val rawPath = if (clean.startsWith("file://")) clean.removePrefix("file://") else clean
+
+            // If clean is a download URL with path= query param, extract it
+            if (clean.contains("/api/files/download") && clean.contains("path=")) {
+                val extractedPath = try {
+                    URLDecoder.decode(clean.substringAfter("path=").substringBefore("&"), "UTF-8")
+                } catch (e: Exception) {
+                    clean.substringAfter("path=").substringBefore("&")
+                }
+                candidatePaths.add(extractedPath)
+            } else if (!clean.startsWith("http://") && !clean.startsWith("https://") && !clean.startsWith("content://")) {
+                candidatePaths.add(rawPath)
+            }
+
+            if (baseName != null) {
+                candidatePaths.add(".hermes/attachments/$baseName")
+                candidatePaths.add("attachments/$baseName")
+                candidatePaths.add(baseName)
+            }
+
+            for (candidate in candidatePaths.distinct()) {
+                val result = restClient.downloadFile(candidate)
+                if (result.isSuccess) {
+                    val bytes = result.getOrNull()
+                    if (bytes != null && bytes.isNotEmpty()) {
+                        Log.i("HermesFile", "Successfully fetched file (${bytes.size} bytes) via restClient for candidate '$candidate'")
+                        return@withContext bytes
+                    }
+                }
+            }
+        }
+
+        // 4. HTTP / HTTPS fallback
+        val fullUrl = resolveFileUrl(clean)
+        if (fullUrl.startsWith("http://") || fullUrl.startsWith("https://")) {
+            val token = try { HermesApp.instance.settingsManager.getSessionToken() } catch (e: Exception) { "hermes_mobile_local" }
+            val client = OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(60, TimeUnit.SECONDS)
+                .build()
+            val req = Request.Builder()
+                .url(fullUrl)
+                .header("X-Hermes-Session-Token", token)
+                .header("Authorization", "Bearer $token")
+                .build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val bytes = resp.body?.bytes()
+                    if (bytes != null && bytes.isNotEmpty()) {
+                        return@withContext bytes
+                    }
+                } else {
+                    Log.e("HermesFile", "HTTP fetch failed: ${resp.code} for $fullUrl")
+                }
+            }
+        }
+
+        null
     } catch (e: Exception) {
         Log.e("HermesFile", "fetchFileBytes error for $source", e)
         null
@@ -246,7 +335,7 @@ suspend fun fetchFileBytes(context: Context, source: String): ByteArray? = withC
 
 suspend fun saveFileToDownloads(context: Context, source: String, displayName: String): Boolean = withContext(Dispatchers.IO) {
     try {
-        val bytes = fetchFileBytes(context, source) ?: return@withContext false
+        val bytes = fetchFileBytes(context, source, displayName) ?: return@withContext false
         val cleanName = displayName.trim().ifBlank { "hermes_file_${System.currentTimeMillis()}" }
         val ext = cleanName.substringAfterLast(".", "").lowercase()
 
@@ -284,7 +373,7 @@ suspend fun saveFileToDownloads(context: Context, source: String, displayName: S
             val contentValues = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, cleanName)
                 put(MediaStore.Downloads.MIME_TYPE, mimeType)
-                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Hermes/")
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Hermes")
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
             var uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
@@ -300,9 +389,13 @@ suspend fun saveFileToDownloads(context: Context, source: String, displayName: S
                 out.write(bytes)
                 out.flush()
             }
-            contentValues.clear()
-            contentValues.put(MediaStore.Downloads.IS_PENDING, 0)
-            resolver.update(uri, contentValues, null, null)
+            try {
+                contentValues.clear()
+                contentValues.put(MediaStore.Downloads.IS_PENDING, 0)
+                resolver.update(uri, contentValues, null, null)
+            } catch (e: Exception) {
+                Log.w("HermesFile", "Failed to clear IS_PENDING on $uri", e)
+            }
             Log.i("HermesFile", "Successfully saved file to Downloads: $uri ($cleanName, ${bytes.size} bytes)")
             true
         } else {
@@ -539,7 +632,7 @@ fun TextFilePreviewDialog(
     LaunchedEffect(source) {
         isLoading = true
         errorMessage = null
-        val bytes = fetchFileBytes(context, source)
+        val bytes = fetchFileBytes(context, source, filename)
         if (bytes != null) {
             textContent = try {
                 String(bytes, Charsets.UTF_8)

@@ -306,6 +306,18 @@ class ChatRepositoryImpl(
                             } catch (e: Exception) {
                                 android.util.Log.w("ChatRepository", "Failed to reset hermesSessionId after API error: ${e.message}")
                             }
+                        } else if (cleanFinal.isNotBlank() && !com.hermes.mobile.HermesApp.isAppInForeground) {
+                            try {
+                                val sessionTitle = sessionDao?.getSessionById(event.sessionId)?.title
+                                com.hermes.mobile.presentation.service.NotificationHelper.notifyResponseCompleted(
+                                    context = com.hermes.mobile.HermesApp.instance,
+                                    sessionId = event.sessionId,
+                                    sessionTitle = sessionTitle,
+                                    content = cleanFinal
+                                )
+                            } catch (e: Exception) {
+                                android.util.Log.w("ChatRepository", "Failed to post completion notification: ${e.message}")
+                            }
                         }
                     }
                     is WebSocketIncomingEvent.Approval -> {

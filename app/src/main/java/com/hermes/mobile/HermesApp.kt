@@ -1,6 +1,9 @@
 package com.hermes.mobile
 
+import android.app.Activity
 import android.app.Application
+import android.os.Bundle
+import com.hermes.mobile.presentation.service.NotificationHelper
 import com.hermes.mobile.domain.repository.ChatRepository
 import com.hermes.mobile.domain.repository.ChatRepositoryImpl
 import com.hermes.mobile.domain.repository.SessionRepository
@@ -69,6 +72,27 @@ class HermesApp : Application(), coil.ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         instance = this
+
+        NotificationHelper.createNotificationChannels(this)
+
+        var resumedActivities = 0
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityResumed(activity: Activity) {
+                resumedActivities++
+                isAppInForeground = resumedActivities > 0
+            }
+
+            override fun onActivityPaused(activity: Activity) {
+                resumedActivities = (resumedActivities - 1).coerceAtLeast(0)
+                isAppInForeground = resumedActivities > 0
+            }
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+            override fun onActivityStarted(activity: Activity) {}
+            override fun onActivityStopped(activity: Activity) {}
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+            override fun onActivityDestroyed(activity: Activity) {}
+        })
 
         checkAndPerformDataMigration()
         database = AppDatabase.getDatabase(this)
@@ -151,6 +175,7 @@ class HermesApp : Application(), coil.ImageLoaderFactory {
         // заберёт живой токен из HTML dashboard и синхронизирует его с REST-клиентом
         webSocketClient.onSessionTokenRecovered = { token ->
             restClient.updateSessionToken(token)
+            settingsManager.updateSessionToken(token)
         }
 
         // G4 (03 §D9г): персист серверного идентификатора сессии для resume
@@ -412,6 +437,10 @@ class HermesApp : Application(), coil.ImageLoaderFactory {
 
     companion object {
         lateinit var instance: HermesApp
+            private set
+
+        @Volatile
+        var isAppInForeground: Boolean = false
             private set
     }
 }
