@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -45,7 +46,9 @@ fun ProviderBottomSheet(
     currentModel: String,
     currentProviderId: String = "",
     fallbackModel: String = "",
-    onSelectModel: (providerId: String, model: String) -> Unit,
+    fallbackProviderId: String = "",
+    fallbackProviderName: String = "",
+    onSelectModel: (providerId: String, model: String, onComplete: (Boolean, String?) -> Unit) -> Unit,
     onSetFallbackModel: (providerId: String, model: String) -> Unit = { _, _ -> },
     onClearFallbackModel: () -> Unit = {},
     onSaveApiKey: (String, String) -> Unit,
@@ -58,30 +61,36 @@ fun ProviderBottomSheet(
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    fun isSameProvider(prov: ProviderConfig, targetId: String): Boolean {
+        if (targetId.isBlank()) return false
+        val cleanTarget = targetId.removePrefix("custom_").trim().lowercase()
+        val cleanId = prov.id.removePrefix("custom_").trim().lowercase()
+        val cleanName = prov.name.trim().lowercase()
+        return cleanId == cleanTarget || cleanName == cleanTarget ||
+                prov.id.equals(targetId, ignoreCase = true) ||
+                prov.name.equals(targetId, ignoreCase = true)
+    }
+
     var selectedProviderId by remember {
         mutableStateOf(
-            if (currentProviderId.isNotEmpty() && providers.any { it.id == currentProviderId }) {
-                currentProviderId
-            } else {
-                providers.firstOrNull { it.availableModels.contains(currentModel) }?.id
-                    ?: providers.firstOrNull()?.id ?: ""
-            }
+            providers.firstOrNull { isSameProvider(it, currentProviderId) }?.id
+                ?: providers.firstOrNull { it.availableModels.contains(currentModel) }?.id
+                ?: providers.firstOrNull()?.id ?: ""
         )
     }
 
     LaunchedEffect(providers, currentProviderId) {
         if (selectedProviderId.isEmpty() || providers.none { it.id == selectedProviderId }) {
-            selectedProviderId = if (currentProviderId.isNotEmpty() && providers.any { it.id == currentProviderId }) {
-                currentProviderId
-            } else {
-                providers.firstOrNull { it.availableModels.contains(currentModel) }?.id
-                    ?: providers.firstOrNull()?.id ?: ""
-            }
+            selectedProviderId = providers.firstOrNull { isSameProvider(it, currentProviderId) }?.id
+                ?: providers.firstOrNull { it.availableModels.contains(currentModel) }?.id
+                ?: providers.firstOrNull()?.id ?: ""
         }
     }
 
     val selectedProvider = providers.firstOrNull { it.id == selectedProviderId }
 
+    var switchingModelName by remember { mutableStateOf<String?>(null) }
     var apiKeyText by remember { mutableStateOf("") }
     var isApiKeyVisible by remember { mutableStateOf(false) }
     var keySavedNotice by remember { mutableStateOf(false) }
@@ -491,6 +500,9 @@ fun ProviderBottomSheet(
                         }
                     }
 
+                    val isProviderActive = isSameProvider(prov, currentProviderId)
+                    val isProviderFallback = fallbackProviderId.isNotBlank() && isSameProvider(prov, fallbackProviderId)
+
                     // Резервная модель баннер
                     if (fallbackModel.isNotBlank()) {
                         Surface(
@@ -504,14 +516,25 @@ fun ProviderBottomSheet(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                ) {
                                     Icon(Icons.Default.Security, contentDescription = null, tint = AccentAmber, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
+                                    val provLabel = when {
+                                        isProviderFallback -> prov.name
+                                        fallbackProviderName.isNotBlank() -> fallbackProviderName
+                                        fallbackProviderId.isNotBlank() -> fallbackProviderId
+                                        else -> null
+                                    }
                                     Text(
-                                        text = "${strings.fallbackBadge}: $fallbackModel",
+                                        text = if (provLabel != null) "${strings.fallbackBadge}: $fallbackModel ($provLabel)" else "${strings.fallbackBadge}: $fallbackModel",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                                 IconButton(onClick = onClearFallbackModel, modifier = Modifier.size(24.dp)) {
@@ -538,15 +561,30 @@ fun ProviderBottomSheet(
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             prov.availableModels.forEach { modelName ->
-                                val isCurrent = modelName == currentModel || modelName == prov.currentModel
-                                val isFallback = modelName == fallbackModel
+                                val isCurrent = isProviderActive && modelName == currentModel
+                                val isFallback = isProviderFallback && fallbackModel.isNotBlank() && modelName == fallbackModel
+                                val isSwitching = switchingModelName == modelName
+
                                 Surface(
                                     onClick = {
+                                        if (switchingModelName != null) return@Surface
                                         if (!prov.hasApiKey || prov.status == ProviderStatus.AUTH_REQUIRED) {
                                             testResultSuccess = false
                                             testResultText = appStrings.provNeedApiKeyNotice.format(prov.name)
+                                        } else if (isCurrent) {
+                                            // Уже выбрана эта модель
                                         } else {
-                                            onSelectModel(prov.id, modelName)
+                                            switchingModelName = modelName
+                                            testResultText = null
+                                            onSelectModel(prov.id, modelName) { success, errorMsg ->
+                                                switchingModelName = null
+                                                if (success) {
+                                                    onDismiss()
+                                                } else {
+                                                    testResultSuccess = false
+                                                    testResultText = errorMsg ?: "Ошибка смены модели"
+                                                }
+                                            }
                                         }
                                     },
                                     shape = AppDimensions.ShapeField,
@@ -613,7 +651,8 @@ fun ProviderBottomSheet(
                                                         onSetFallbackModel(prov.id, modelName)
                                                     }
                                                 },
-                                                modifier = Modifier.size(30.dp)
+                                                modifier = Modifier.size(30.dp),
+                                                enabled = switchingModelName == null
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Default.Security,
@@ -623,7 +662,14 @@ fun ProviderBottomSheet(
                                                 )
                                             }
 
-                                            if (isCurrent) {
+                                            if (isSwitching) {
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(18.dp),
+                                                    strokeWidth = 2.dp,
+                                                    color = PrimaryIndigo
+                                                )
+                                            } else if (isCurrent) {
                                                 Spacer(modifier = Modifier.width(4.dp))
                                                 Icon(
                                                     imageVector = Icons.Default.CheckCircle,

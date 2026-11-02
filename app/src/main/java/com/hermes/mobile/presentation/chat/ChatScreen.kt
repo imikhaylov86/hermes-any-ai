@@ -60,6 +60,8 @@ fun ChatScreen(
     val activeProvider by viewModel.activeProvider.collectAsState()
     val activeProviderName by viewModel.activeProviderName.collectAsState()
     val fallbackModel by viewModel.fallbackModel.collectAsState()
+    val fallbackProvider by viewModel.fallbackProvider.collectAsState()
+    val fallbackProviderName by viewModel.fallbackProviderName.collectAsState()
     val serverUrl by viewModel.serverUrl.collectAsState()
 
     val pendingApprovals by viewModel.pendingApprovals.collectAsState()
@@ -672,15 +674,17 @@ fun ChatScreen(
             currentModel = activeModel,
             currentProviderId = activeProvider,
             fallbackModel = fallbackModel,
+            fallbackProviderId = fallbackProvider,
+            fallbackProviderName = fallbackProviderName,
             onSetFallbackModel = { providerId, model ->
                 viewModel.setFallbackModel(providerId, model)
             },
             onClearFallbackModel = {
                 viewModel.clearFallbackModel()
             },
-            onSelectModel = { providerId, model ->
-                showProviderSheet = false
+            onSelectModel = { providerId, model, onComplete ->
                 viewModel.setActiveModel(model, providerId) { success, errorMsg ->
+                    onComplete(success, errorMsg)
                     if (!success && errorMsg != null) {
                         scope.launch {
                             snackbarHostState.showSnackbar(errorMsg)

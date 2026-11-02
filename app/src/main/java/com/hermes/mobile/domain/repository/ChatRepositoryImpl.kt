@@ -344,7 +344,12 @@ class ChatRepositoryImpl(
                             )
                             messageDao.insertMessage(notice)
 
-                            settingsManager?.setActiveModel(fbModel)
+                            val fbProvName = settingsManager?.fallbackProviderName?.value ?: (fbProvider ?: "")
+                            if (!fbProvider.isNullOrBlank()) {
+                                settingsManager?.setActiveModelAndProvider(fbModel, fbProvider, fbProvName)
+                            } else {
+                                settingsManager?.setActiveModel(fbModel)
+                            }
                             webSocketClient.setActiveModel(fbModel, fbProvider ?: "")
                         } else {
                             val errEntity = MessageEntity(

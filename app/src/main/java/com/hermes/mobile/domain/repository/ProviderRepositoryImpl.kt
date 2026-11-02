@@ -115,7 +115,8 @@ class ProviderRepositoryImpl(
 
             if (standardList.isNotEmpty()) {
                 _providers.value = standardList
-                if (currentInfo?.model != null && currentInfo.provider != null) {
+                // Инициализируем настройки из демона только если у пользователя еще не выбрана модель
+                if (settingsManager.activeModel.value.isBlank() && currentInfo?.model != null && currentInfo.provider != null) {
                     val model = currentInfo.model!!
                     val provider = currentInfo.provider!!
                     val matchingProv = standardList.firstOrNull { it.id == provider || it.name == provider }
@@ -150,32 +151,58 @@ class ProviderRepositoryImpl(
         }
     }
 
+    private fun resolveDaemonProviderSlug(prov: ProviderConfig?, fallbackRaw: String?): String {
+        val raw = fallbackRaw ?: ""
+        val candidate = prov?.id ?: raw
+        val candidateName = prov?.name ?: raw
+        val cleanId = candidate.removePrefix("custom_").trim().lowercase()
+        val cleanName = candidateName.trim().lowercase()
+
+        return when {
+            cleanId == "anthropic" || cleanName.contains("anthropic") || cleanName.contains("claude") -> "anthropic"
+            cleanId == "openai" || cleanName.contains("openai") -> "openai"
+            cleanId == "openrouter" || cleanName.contains("openrouter") -> "openrouter"
+            cleanId == "deepseek" || cleanName.contains("deepseek") -> "deepseek"
+            cleanId == "google" || cleanId == "gemini" || cleanName.contains("google") || cleanName.contains("gemini") -> "google"
+            cleanId == "groq" || cleanName.contains("groq") -> "groq"
+            cleanId == "mistral" || cleanName.contains("mistral") -> "mistral"
+            cleanId == "ollama" || cleanName.contains("ollama") -> "ollama"
+            cleanId == "zai" || cleanName.contains("z.ai") || cleanName.contains("zai") || cleanName.contains("glm") -> "zai"
+            cleanId == "qwen" || cleanId == "dashscope" || cleanName.contains("qwen") || cleanName.contains("dashscope") -> "dashscope"
+            prov != null && !prov.baseUrl.isNullOrBlank() -> prov.name
+            prov != null && prov.id.startsWith("custom_") -> prov.name
+            prov != null -> prov.id
+            else -> raw.removePrefix("custom_")
+        }
+    }
+
     override suspend fun setActiveModel(model: String, providerId: String?): Result<Unit> {
         val prov = _providers.value.firstOrNull { it.id == providerId || it.name.equals(providerId, ignoreCase = true) }
             ?: _providers.value.firstOrNull { it.id.equals(providerId?.removePrefix("custom_"), ignoreCase = true) }
             ?: _providers.value.firstOrNull { it.availableModels.contains(model) }
-        val targetProvider = prov?.let { if (it.isCustom) it.name else it.id.removePrefix("custom_") }
-            ?: providerId?.removePrefix("custom_") ?: ""
-        val targetProviderName = prov?.name ?: targetProvider
+
+        val daemonSlug = resolveDaemonProviderSlug(prov, providerId)
+        val targetProviderId = prov?.id ?: daemonSlug
+        val targetProviderName = prov?.name ?: targetProviderId
 
         if (prov != null && (!prov.hasApiKey || prov.status == ProviderStatus.AUTH_REQUIRED)) {
             return Result.failure(Exception("Провайдер ${prov.name} не подключен: укажите API-ключ перед выбором модели"))
         }
 
-        // Синхронизация активной модели с runtime Hermes через REST
-        val restResult = restClient.setModel(model, targetProvider)
+        // Синхронизация активной модели с runtime Hermes через REST (отправляем канонический daemonSlug)
+        val restResult = restClient.setModel(model, daemonSlug)
         if (restResult.isFailure) {
             return Result.failure(restResult.exceptionOrNull() ?: Exception("Не удалось переключить модель в Hermes"))
         }
 
         // Синхронизация с WebSocket сессией (модель + провайдер)
-        webSocketClient.setActiveModel(model, targetProvider)
-        settingsManager.setActiveModelAndProvider(model, targetProvider, targetProviderName)
+        webSocketClient.setActiveModel(model, daemonSlug)
+        settingsManager.setActiveModelAndProvider(model, targetProviderId, targetProviderName)
 
         // Обновляем состояние в локальном потоке
         val currentList = _providers.value
         _providers.value = currentList.map { p ->
-            if (p.id == targetProvider || p.name.equals(targetProvider, ignoreCase = true) || p.id == prov?.id) {
+            if (p.id == targetProviderId || p.name.equals(targetProviderName, ignoreCase = true) || p.id == prov?.id) {
                 p.copy(currentModel = model)
             } else {
                 p
@@ -474,11 +501,11 @@ class ProviderRepositoryImpl(
             val fallback = updated.firstOrNull { it.hasApiKey } ?: updated.firstOrNull()
             if (fallback != null) {
                 val fallbackModel = fallback.currentModel ?: fallback.availableModels.firstOrNull() ?: fallback.name
-                val fallbackProvId = if (fallback.isCustom) fallback.name else fallback.id.removePrefix("custom_")
-                settingsManager.setActiveModelAndProvider(fallbackModel, fallbackProvId, fallback.name)
-                webSocketClient.setActiveModel(fallbackModel, fallbackProvId)
+                val fallbackDaemonSlug = resolveDaemonProviderSlug(fallback, fallback.id)
+                settingsManager.setActiveModelAndProvider(fallbackModel, fallback.id, fallback.name)
+                webSocketClient.setActiveModel(fallbackModel, fallbackDaemonSlug)
                 try {
-                    restClient.setModel(fallbackModel, fallbackProvId)
+                    restClient.setModel(fallbackModel, fallbackDaemonSlug)
                 } catch (_: Exception) {}
             }
         }
@@ -672,8 +699,10 @@ class ProviderRepositoryImpl(
             if (modelInfo.model.isNullOrBlank() || modelInfo.provider.isNullOrBlank()) {
                 val activeModel = settingsManager.activeModel.value
                 val activeProvider = settingsManager.activeProvider.value
+                val prov = _providers.value.firstOrNull { it.id == activeProvider || it.name.equals(activeProvider, ignoreCase = true) }
+                val daemonSlug = resolveDaemonProviderSlug(prov, activeProvider)
                 if (activeModel.isNotBlank()) {
-                    val res = restClient.setModel(activeModel, activeProvider)
+                    val res = restClient.setModel(activeModel, daemonSlug)
                     modelApplied = res.isSuccess
                 }
                 if (!modelApplied) {
@@ -683,12 +712,12 @@ class ProviderRepositoryImpl(
                     } catch (_: Exception) { null }
                     val fallbackModel = fallbackProv?.currentModel?.takeIf { it.isNotBlank() }
                     if (fallbackModel != null) {
-                        val fallbackProvId = fallbackProv.id.removePrefix("custom_")
-                        val res = restClient.setModel(fallbackModel, fallbackProvId)
+                        val fallbackSlug = resolveDaemonProviderSlug(null, fallbackProv.id)
+                        val res = restClient.setModel(fallbackModel, fallbackSlug)
                         modelApplied = res.isSuccess
                         if (modelApplied) {
-                            settingsManager.setActiveModelAndProvider(fallbackModel, fallbackProvId, fallbackModel)
-                            webSocketClient.setActiveModel(fallbackModel, fallbackProvId)
+                            settingsManager.setActiveModelAndProvider(fallbackModel, fallbackProv.id, fallbackProv.name)
+                            webSocketClient.setActiveModel(fallbackModel, fallbackSlug)
                         }
                     }
                 }

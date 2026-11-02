@@ -43,6 +43,7 @@ class ChatViewModel(
     val activeProviderName: StateFlow<String> = settingsManager.activeProviderName
     val fallbackModel: StateFlow<String> = settingsManager.fallbackModel
     val fallbackProvider: StateFlow<String> = settingsManager.fallbackProvider
+    val fallbackProviderName: StateFlow<String> = settingsManager.fallbackProviderName
     val serverUrl: StateFlow<String> = settingsManager.serverUrl
 
     fun setFallbackModel(providerId: String, model: String) {
