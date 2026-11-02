@@ -125,6 +125,35 @@ class AppSettingsManager(context: Context) {
     )
     val appLanguage: StateFlow<String> = _appLanguage.asStateFlow()
 
+    private val _deletedProviderIds = MutableStateFlow(
+        prefs.getStringSet(KEY_DELETED_PROVIDERS, emptySet()) ?: emptySet()
+    )
+    val deletedProviderIds: StateFlow<Set<String>> = _deletedProviderIds.asStateFlow()
+
+    fun markProviderDeleted(vararg identifiers: String) {
+        val updated = _deletedProviderIds.value.toMutableSet()
+        identifiers.forEach { id ->
+            if (id.isNotBlank()) {
+                updated.add(id.trim())
+                updated.add(id.trim().lowercase())
+            }
+        }
+        prefs.edit().putStringSet(KEY_DELETED_PROVIDERS, updated).apply()
+        _deletedProviderIds.value = updated
+    }
+
+    fun unmarkProviderDeleted(vararg identifiers: String) {
+        val updated = _deletedProviderIds.value.toMutableSet()
+        identifiers.forEach { id ->
+            if (id.isNotBlank()) {
+                updated.remove(id.trim())
+                updated.remove(id.trim().lowercase())
+            }
+        }
+        prefs.edit().putStringSet(KEY_DELETED_PROVIDERS, updated).apply()
+        _deletedProviderIds.value = updated
+    }
+
     /**
      * Флаг разработчика: экспорт расшифрованных ключей в keys_plain.json при старте.
      * По умолчанию ВЫКЛЮЧЕН. Нужен только для переноса ключей между сборками
@@ -343,5 +372,6 @@ class AppSettingsManager(context: Context) {
         private const val KEY_FALLBACK_PROVIDER_NAME = "key_fallback_provider_name"
         private const val KEY_APP_LANGUAGE = "key_app_language"
         private const val KEY_DEBUG_KEYS_EXPORT = "key_debug_keys_export"
+        private const val KEY_DELETED_PROVIDERS = "key_deleted_providers"
     }
 }

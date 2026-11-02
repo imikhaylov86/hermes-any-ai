@@ -299,22 +299,27 @@ fun ProviderBottomSheet(
                                         .background(dotColor)
                                 )
                             },
-                            label = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = prov.name,
-                                        fontSize = 13.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                    if (prov.isCustom) {
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "⚙",
-                                            fontSize = 10.sp,
-                                            color = MaterialTheme.colorScheme.primary
+                            trailingIcon = if (isSelected) {
+                                {
+                                    IconButton(
+                                        onClick = { providerToDelete = prov },
+                                        modifier = Modifier.size(18.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = strings.delete,
+                                            tint = AccentRose,
+                                            modifier = Modifier.size(13.dp)
                                         )
                                     }
                                 }
+                            } else null,
+                            label = {
+                                Text(
+                                    text = prov.name,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
                             },
                             shape = AppDimensions.ShapeChip
                         )
@@ -432,20 +437,17 @@ fun ProviderBottomSheet(
                                         }
                                     }
 
-                                    // Кнопка удаления провайдера
-                                    val canDeleteProvider = prov.isCustom || prov.id.startsWith("custom_") || !prov.baseUrl.isNullOrBlank() || prov.id.lowercase() !in setOf("openai", "anthropic", "groq") || providers.size > 1
-                                    if (canDeleteProvider) {
-                                        IconButton(
-                                            onClick = { providerToDelete = prov },
-                                            modifier = Modifier.size(36.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.DeleteOutline,
-                                                contentDescription = strings.delete,
-                                                tint = AccentRose,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
+                                    // Кнопка удаления провайдера (доступна для всех провайдеров)
+                                    IconButton(
+                                        onClick = { providerToDelete = prov },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteOutline,
+                                            contentDescription = strings.delete,
+                                            tint = AccentRose,
+                                            modifier = Modifier.size(20.dp)
+                                        )
                                     }
                                 }
                             }
@@ -738,58 +740,55 @@ fun ProviderBottomSheet(
                             )
                         }
 
-                        // Секция деструктивных действий: явная кнопка удаления провайдера
-                        val canDeleteProvider = prov.isCustom || prov.id.startsWith("custom_") || !prov.baseUrl.isNullOrBlank() || prov.id.lowercase() !in setOf("openai", "anthropic", "groq") || providers.size > 1
-                        if (canDeleteProvider) {
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                                modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
-                            )
+                        // Секция деструктивных действий: явная кнопка удаления провайдера (для всех провайдеров)
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                        )
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = strings.provDeleteActionTitle,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = strings.provDeleteActionSubtitle,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            OutlinedButton(
+                                onClick = { providerToDelete = prov },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = AccentRose
+                                ),
+                                border = BorderStroke(1.dp, AccentRose.copy(alpha = 0.6f)),
+                                shape = AppDimensions.ShapeButton,
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = strings.provDeleteActionTitle,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = strings.provDeleteActionSubtitle,
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.width(8.dp))
-
-                                OutlinedButton(
-                                    onClick = { providerToDelete = prov },
-                                    colors = ButtonDefaults.outlinedButtonColors(
-                                        contentColor = AccentRose
-                                    ),
-                                    border = BorderStroke(1.dp, AccentRose.copy(alpha = 0.6f)),
-                                    shape = AppDimensions.ShapeButton,
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.DeleteOutline,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp),
-                                        tint = AccentRose
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = strings.provDeleteBtn,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = AccentRose
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.DeleteOutline,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = AccentRose
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = strings.provDeleteBtn,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AccentRose
+                                )
                             }
                         }
                     }

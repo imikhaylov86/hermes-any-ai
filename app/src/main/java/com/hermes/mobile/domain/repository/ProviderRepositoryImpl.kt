@@ -36,7 +36,15 @@ class ProviderRepositoryImpl(
             val customEndpoints = restClient.getCustomEndpoints()
             val currentInfo = restClient.getModelInfo()
 
-            val standardList = dtos.map { dto ->
+            val deletedIds = settingsManager.deletedProviderIds.value
+            val standardList = dtos.filterNot { dto ->
+                dto.id in deletedIds || 
+                dto.name in deletedIds || 
+                dto.id.lowercase() in deletedIds || 
+                dto.name.lowercase() in deletedIds ||
+                "custom_${dto.name.lowercase()}" in deletedIds ||
+                "custom_${dto.id.lowercase()}" in deletedIds
+            }.map { dto ->
                 val status = when (dto.status.lowercase()) {
                     "connected" -> ProviderStatus.CONNECTED
                     "auth_required" -> ProviderStatus.AUTH_REQUIRED
@@ -44,7 +52,6 @@ class ProviderRepositoryImpl(
                     else -> ProviderStatus.DISCONNECTED
                 }
                 val hasKey = dto.hasKey || keystoreManager.hasKey(dto.id) || keystoreManager.hasKey(dto.name)
-                val isCustomProvider = dto.isCustom || dto.id.startsWith("custom_") || !dto.baseUrl.isNullOrBlank() || dto.id.lowercase() !in setOf("openai", "anthropic", "groq")
                 ProviderConfig(
                     id = dto.id,
                     name = dto.name,
@@ -54,12 +61,14 @@ class ProviderRepositoryImpl(
                     hasApiKey = hasKey,
                     baseUrl = dto.baseUrl,
                     apiMode = ProviderApiMode.fromId(dto.apiMode),
-                    isCustom = isCustomProvider
+                    isCustom = true
                 )
             }.toMutableList()
 
             // Дополняем и обогащаем пользовательскими эндпоинтами из конфига агента
-            customEndpoints.forEach { ce ->
+            customEndpoints.filterNot { ce ->
+                ce.name in deletedIds || ce.name.lowercase() in deletedIds || "custom_${ce.name.lowercase()}" in deletedIds
+            }.forEach { ce ->
                 val customId = "custom_${ce.name.lowercase().replace(Regex("[^a-z0-9_]"), "_")}"
                 val existingIndex = standardList.indexOfFirst {
                     it.id == customId || it.id == ce.name || it.name.equals(ce.name, ignoreCase = true)
@@ -293,6 +302,7 @@ class ProviderRepositoryImpl(
             return Result.failure(IllegalArgumentException("Название провайдера не может быть пустым"))
         }
         val customId = trimmedName
+        settingsManager.unmarkProviderDeleted(trimmedName, customId, "custom_${trimmedName.lowercase()}")
         val discoveredModels = if (models.isNotEmpty()) models else restClient.probeDirectModels(baseUrl, apiKey)
         val effectiveModels = if (discoveredModels.isNotEmpty()) discoveredModels else listOf(trimmedName)
 
@@ -361,6 +371,7 @@ class ProviderRepositoryImpl(
     ): Result<Unit> {
         val trimmedName = name.trim().take(16).ifBlank { "custom" }
         val cleanId = "custom_${trimmedName.lowercase().replace(Regex("[^a-z0-9_]"), "_")}"
+        settingsManager.unmarkProviderDeleted(trimmedName, cleanId, "custom_${trimmedName.lowercase()}")
         val effectiveModel = model.trim().ifBlank { trimmedName }
         val trimmedBaseUrl = baseUrl.trim()
         val trimmedKey = apiKey.trim()
@@ -429,7 +440,17 @@ class ProviderRepositoryImpl(
         val prov = _providers.value.firstOrNull { it.id == providerId || it.name.equals(providerId, ignoreCase = true) }
             ?: return Result.failure(Exception("Провайдер не найден"))
 
-        // 1. Удаляем из конфига агента Hermes (best-effort)
+        // 1. Персистентно помечаем провайдера как удаленного, чтобы он не вернулся из демона
+        settingsManager.markProviderDeleted(
+            prov.id,
+            prov.name,
+            prov.id.lowercase(),
+            prov.name.lowercase(),
+            "custom_${prov.name.lowercase()}",
+            "custom_${prov.id.lowercase()}"
+        )
+
+        // 2. Удаляем из конфига агента Hermes (best-effort)
         try {
             restClient.deleteCustomEndpoint(prov.name)
         } catch (_: Exception) {}
@@ -518,7 +539,8 @@ class ProviderRepositoryImpl(
     }
 
     private fun getDemoProviders(): List<ProviderConfig> {
-        return listOf(
+        val deletedIds = settingsManager.deletedProviderIds.value
+        val all = listOf(
             ProviderConfig(
                 id = "prov_hermes_local",
                 name = "Локальный Hermes",
@@ -526,7 +548,7 @@ class ProviderRepositoryImpl(
                 currentModel = "Hermes 3 (Llama-3.1 8B)",
                 availableModels = listOf("Hermes 3 (Llama-3.1 8B)", "Qwen 2.5 Coder 7B"),
                 hasApiKey = true,
-                isCustom = false
+                isCustom = true
             ),
             ProviderConfig(
                 id = "prov_anthropic",
@@ -535,7 +557,7 @@ class ProviderRepositoryImpl(
                 currentModel = "Claude 3.5 Sonnet",
                 availableModels = listOf("Claude 3.5 Sonnet", "Claude 3.5 Haiku", "Claude 3 Opus"),
                 hasApiKey = keystoreManager.hasKey("prov_anthropic"),
-                isCustom = false
+                isCustom = true
             ),
             ProviderConfig(
                 id = "prov_openai",
@@ -544,9 +566,10 @@ class ProviderRepositoryImpl(
                 currentModel = "gpt-4o",
                 availableModels = listOf("gpt-4o", "gpt-4o-mini", "o1-preview"),
                 hasApiKey = true,
-                isCustom = false
+                isCustom = true
             )
         )
+        return all.filterNot { it.id in deletedIds || it.name in deletedIds || it.id.lowercase() in deletedIds || it.name.lowercase() in deletedIds }
     }
 
     /**
@@ -572,10 +595,12 @@ class ProviderRepositoryImpl(
             var appliedCount = 0
 
             // 0. Локальный список провайдеров (если пуст — подтянем из демона)
+            val deletedIds = settingsManager.deletedProviderIds.value
             val providersToSync = _providers.value.ifEmpty {
                 try {
-                    restClient.getProviders().map { dto ->
-                        val isCustomProvider = dto.isCustom || dto.id.startsWith("custom_") || !dto.baseUrl.isNullOrBlank() || dto.id.lowercase() !in setOf("openai", "anthropic", "groq")
+                    restClient.getProviders().filterNot { dto ->
+                        dto.id in deletedIds || dto.name in deletedIds || dto.id.lowercase() in deletedIds || dto.name.lowercase() in deletedIds
+                    }.map { dto ->
                         ProviderConfig(
                             id = dto.id,
                             name = dto.name,
@@ -585,7 +610,7 @@ class ProviderRepositoryImpl(
                             hasApiKey = true,
                             baseUrl = dto.baseUrl,
                             apiMode = ProviderApiMode.fromId(dto.apiMode),
-                            isCustom = isCustomProvider
+                            isCustom = true
                         )
                     }
                 } catch (_: Exception) { emptyList() }
