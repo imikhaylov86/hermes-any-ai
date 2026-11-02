@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -431,17 +432,18 @@ fun ProviderBottomSheet(
                                         }
                                     }
 
-                                    // Кнопка удаления для пользовательских провайдеров
-                                    if (prov.isCustom) {
+                                    // Кнопка удаления провайдера
+                                    val canDeleteProvider = prov.isCustom || prov.id.startsWith("custom_") || !prov.baseUrl.isNullOrBlank() || prov.id.lowercase() !in setOf("openai", "anthropic", "groq") || providers.size > 1
+                                    if (canDeleteProvider) {
                                         IconButton(
                                             onClick = { providerToDelete = prov },
-                                            modifier = Modifier.size(32.dp)
+                                            modifier = Modifier.size(36.dp)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Delete,
+                                                imageVector = Icons.Default.DeleteOutline,
                                                 contentDescription = strings.delete,
                                                 tint = AccentRose,
-                                                modifier = Modifier.size(18.dp)
+                                                modifier = Modifier.size(20.dp)
                                             )
                                         }
                                     }
@@ -735,6 +737,61 @@ fun ProviderBottomSheet(
                                 fontSize = 12.sp
                             )
                         }
+
+                        // Секция деструктивных действий: явная кнопка удаления провайдера
+                        val canDeleteProvider = prov.isCustom || prov.id.startsWith("custom_") || !prov.baseUrl.isNullOrBlank() || prov.id.lowercase() !in setOf("openai", "anthropic", "groq") || providers.size > 1
+                        if (canDeleteProvider) {
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                                modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = strings.provDeleteActionTitle,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = strings.provDeleteActionSubtitle,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                OutlinedButton(
+                                    onClick = { providerToDelete = prov },
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = AccentRose
+                                    ),
+                                    border = BorderStroke(1.dp, AccentRose.copy(alpha = 0.6f)),
+                                    shape = AppDimensions.ShapeButton,
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeleteOutline,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = AccentRose
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = strings.provDeleteBtn,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AccentRose
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -761,31 +818,105 @@ fun ProviderBottomSheet(
 
     // Диалог подтверждения удаления
     providerToDelete?.let { prov ->
+        val isCurrentActive = prov.id == currentProviderId || prov.name.equals(currentProviderId, ignoreCase = true)
+        var deleteErrorText by remember { mutableStateOf<String?>(null) }
+
         AlertDialog(
-            onDismissRequest = { if (!isDeleting) providerToDelete = null },
+            onDismissRequest = {
+                if (!isDeleting) {
+                    providerToDelete = null
+                    deleteErrorText = null
+                }
+            },
             icon = {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = null,
-                    tint = AccentRose
-                )
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(AccentRose.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteOutline,
+                        contentDescription = null,
+                        tint = AccentRose,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
             },
             title = {
-                Text(strings.provDeleteTitle)
+                Text(
+                    text = strings.provDeleteTitle,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
             },
             text = {
-                Text(
-                    text = strings.provDeleteConfirm.format(prov.name),
-                    fontSize = 14.sp
-                )
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = strings.provDeleteConfirm.format(prov.name),
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    if (isCurrentActive) {
+                        Surface(
+                            shape = AppDimensions.ShapeCard,
+                            color = AccentAmber.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, AccentAmber.copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = AccentAmber,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = strings.provDeleteActiveWarning,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+
+                    if (deleteErrorText != null) {
+                        Text(
+                            text = deleteErrorText!!,
+                            color = AccentRose,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
             },
             confirmButton = {
                 Button(
                     onClick = {
                         isDeleting = true
-                        onDeleteProvider(prov.id) { _, _ ->
+                        deleteErrorText = null
+                        onDeleteProvider(prov.id) { success, err ->
                             isDeleting = false
-                            providerToDelete = null
+                            if (success) {
+                                val remaining = providers.filterNot { it.id == prov.id }
+                                if (selectedProviderId == prov.id) {
+                                    selectedProviderId = remaining.firstOrNull()?.id ?: ""
+                                }
+                                providerToDelete = null
+                            } else {
+                                deleteErrorText = err ?: "Ошибка при удалении провайдера"
+                            }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = AccentRose),
@@ -793,16 +924,24 @@ fun ProviderBottomSheet(
                     enabled = !isDeleting
                 ) {
                     if (isDeleting) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
-                    } else {
-                        Text(strings.delete)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
                     }
+                    Text(strings.delete, color = Color.White, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(
-                    onClick = { providerToDelete = null },
-                    enabled = !isDeleting
+                OutlinedButton(
+                    onClick = {
+                        providerToDelete = null
+                        deleteErrorText = null
+                    },
+                    enabled = !isDeleting,
+                    shape = AppDimensions.ShapeButton
                 ) {
                     Text(strings.cancel)
                 }

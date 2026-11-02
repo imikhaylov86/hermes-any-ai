@@ -377,7 +377,8 @@ class DashboardRestClient(
                             } else {
                                 p.models.firstOrNull()
                             }
-                            val hasRealKey = p.isUserDefined || p.source == "user-config" || (p.usage != null && p.usage.toString().contains("accounts"))
+                            val isUserConfigured = p.isUserDefined || p.source == "user-config" || p.slug.startsWith("custom_") || !p.apiUrl.isNullOrBlank() || p.slug.lowercase() !in setOf("openai", "anthropic", "groq")
+                            val hasRealKey = isUserConfigured || (p.usage != null && p.usage.toString().contains("accounts"))
                             val status = if (hasRealKey) "connected" else "auth_required"
                             ProviderItemDto(
                                 id = p.slug,
@@ -385,7 +386,9 @@ class DashboardRestClient(
                                 status = status,
                                 currentModel = activeModel,
                                 availableModels = p.models,
-                                hasKey = hasRealKey
+                                hasKey = hasRealKey,
+                                baseUrl = p.apiUrl,
+                                isCustom = isUserConfigured
                             )
                         }
                     } else if (options.models.isNotEmpty()) {

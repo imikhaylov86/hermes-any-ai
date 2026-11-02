@@ -215,6 +215,10 @@ interface AppStrings {
     val provKeySavedNotice: String
     val provDeleteTitle: String
     val provDeleteConfirm: String
+    val provDeleteBtn: String
+    val provDeleteActionTitle: String
+    val provDeleteActionSubtitle: String
+    val provDeleteActiveWarning: String
     val provAddTitle: String
     val provAddSubtitle: String
     val provNameLabel: String
@@ -541,6 +545,10 @@ class RuAppStrings : AppStrings {
     override val provKeySavedNotice = "✓ Ключ сохранён в защищённом хранилище и передан агенту Hermes"
     override val provDeleteTitle = "Удалить провайдера?"
     override val provDeleteConfirm = "Провайдер «%s» будет удалён из файла конфигурации агента Hermes (config.yaml), а сохранённый API-ключ будет безвозвратно стёрт из защищённого хранилища устройства."
+    override val provDeleteBtn = "Удалить провайдера"
+    override val provDeleteActionTitle = "Управление провайдером"
+    override val provDeleteActionSubtitle = "Удалить конфигурацию и сохранённые ключи"
+    override val provDeleteActiveWarning = "Этот провайдер сейчас выбран как активный. После удаления приложение автоматически переключится на другой доступный провайдер."
     override val provAddTitle = "Новый провайдер ИИ"
     override val provAddSubtitle = "Настройки изменят файл config.yaml агента"
     override val provNameLabel = "1. Название провайдера *"
@@ -863,6 +871,10 @@ class EnAppStrings : AppStrings {
     override val provKeySavedNotice = "✓ Key securely stored in Keystore and transferred to Hermes agent"
     override val provDeleteTitle = "Delete Provider?"
     override val provDeleteConfirm = "Provider '%s' will be removed from Hermes configuration (config.yaml), and the saved API key will be permanently deleted from the device Keystore."
+    override val provDeleteBtn = "Delete Provider"
+    override val provDeleteActionTitle = "Provider Management"
+    override val provDeleteActionSubtitle = "Remove configuration and stored keys"
+    override val provDeleteActiveWarning = "This provider is currently active. After deletion, the app will automatically switch to another available provider."
     override val provAddTitle = "New AI Provider"
     override val provAddSubtitle = "Settings will update the agent config.yaml"
     override val provNameLabel = "1. Provider Name *"

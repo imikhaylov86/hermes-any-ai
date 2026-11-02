@@ -44,6 +44,7 @@ class ProviderRepositoryImpl(
                     else -> ProviderStatus.DISCONNECTED
                 }
                 val hasKey = dto.hasKey || keystoreManager.hasKey(dto.id) || keystoreManager.hasKey(dto.name)
+                val isCustomProvider = dto.isCustom || dto.id.startsWith("custom_") || !dto.baseUrl.isNullOrBlank() || dto.id.lowercase() !in setOf("openai", "anthropic", "groq")
                 ProviderConfig(
                     id = dto.id,
                     name = dto.name,
@@ -53,7 +54,7 @@ class ProviderRepositoryImpl(
                     hasApiKey = hasKey,
                     baseUrl = dto.baseUrl,
                     apiMode = ProviderApiMode.fromId(dto.apiMode),
-                    isCustom = dto.isCustom
+                    isCustom = isCustomProvider
                 )
             }.toMutableList()
 
@@ -428,13 +429,17 @@ class ProviderRepositoryImpl(
         val prov = _providers.value.firstOrNull { it.id == providerId || it.name.equals(providerId, ignoreCase = true) }
             ?: return Result.failure(Exception("Провайдер не найден"))
 
-        // 1. Удаляем из конфига агента Hermes
-        val restResult = restClient.deleteCustomEndpoint(prov.name)
+        // 1. Удаляем из конфига агента Hermes (best-effort)
+        try {
+            restClient.deleteCustomEndpoint(prov.name)
+        } catch (_: Exception) {}
 
         // 2. Удаляем ключи из Android Keystore
         keystoreManager.removeKey(prov.id)
         keystoreManager.removeKey(prov.name)
         keystoreManager.removeKey("custom_${prov.name.lowercase()}")
+        keystoreManager.removeKey(keyEnvNameFor(prov.name))
+        keystoreManager.removeKey(keyEnvNameFor(prov.id))
 
         // 3. Удаляем из локального списка
         val updated = _providers.value.filterNot { 
@@ -445,10 +450,15 @@ class ProviderRepositoryImpl(
         // 4. Если удалённый провайдер был активным — переключаем на первый доступный
         val currentActive = settingsManager.activeProvider.value.removePrefix("custom_")
         if (currentActive == providerId || currentActive == prov.name || settingsManager.activeProviderName.value == prov.name) {
-            val fallback = updated.firstOrNull { it.isConnected } ?: updated.firstOrNull()
+            val fallback = updated.firstOrNull { it.hasApiKey } ?: updated.firstOrNull()
             if (fallback != null) {
-                val fallbackModel = fallback.currentModel ?: fallback.availableModels.firstOrNull() ?: "Hermes 3"
-                setActiveModel(fallbackModel, fallback.id)
+                val fallbackModel = fallback.currentModel ?: fallback.availableModels.firstOrNull() ?: fallback.name
+                val fallbackProvId = if (fallback.isCustom) fallback.name else fallback.id.removePrefix("custom_")
+                settingsManager.setActiveModelAndProvider(fallbackModel, fallbackProvId, fallback.name)
+                webSocketClient.setActiveModel(fallbackModel, fallbackProvId)
+                try {
+                    restClient.setModel(fallbackModel, fallbackProvId)
+                } catch (_: Exception) {}
             }
         }
 
@@ -565,6 +575,7 @@ class ProviderRepositoryImpl(
             val providersToSync = _providers.value.ifEmpty {
                 try {
                     restClient.getProviders().map { dto ->
+                        val isCustomProvider = dto.isCustom || dto.id.startsWith("custom_") || !dto.baseUrl.isNullOrBlank() || dto.id.lowercase() !in setOf("openai", "anthropic", "groq")
                         ProviderConfig(
                             id = dto.id,
                             name = dto.name,
@@ -574,7 +585,7 @@ class ProviderRepositoryImpl(
                             hasApiKey = true,
                             baseUrl = dto.baseUrl,
                             apiMode = ProviderApiMode.fromId(dto.apiMode),
-                            isCustom = dto.isCustom
+                            isCustom = isCustomProvider
                         )
                     }
                 } catch (_: Exception) { emptyList() }
