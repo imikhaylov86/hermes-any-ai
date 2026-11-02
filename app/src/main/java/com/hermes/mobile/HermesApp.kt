@@ -297,28 +297,53 @@ class HermesApp : Application(), coil.ImageLoaderFactory {
             val dbTarget = getDatabasePath("hermes_mobile_database")
             val migrationDir = getExternalFilesDir("migration")
 
-            val sourceDb = when {
-                migrationDir != null && java.io.File(migrationDir, "hermes_mobile_database").exists() ->
-                    java.io.File(migrationDir, "hermes_mobile_database")
-                java.io.File(getExternalFilesDir(null), "hermes_mobile_database").exists() ->
-                    java.io.File(getExternalFilesDir(null), "hermes_mobile_database")
-                java.io.File("/sdcard/Android/data/com.hermes.mobile.debug/files/hermes_mobile_database").exists() ->
-                    java.io.File("/sdcard/Android/data/com.hermes.mobile.debug/files/hermes_mobile_database")
-                java.io.File("/data/local/tmp/hermes_mobile_database").exists() ->
-                    java.io.File("/data/local/tmp/hermes_mobile_database")
-                java.io.File("/data/local/tmp/db").exists() ->
-                    java.io.File("/data/local/tmp/db")
-                else -> null
-            }
+            val candidatePaths = listOfNotNull(
+                migrationDir?.let { java.io.File(it, "hermes_mobile_database") },
+                java.io.File(getExternalFilesDir(null), "hermes_mobile_database"),
+                java.io.File("/sdcard/HermesVault/hermes_mobile_database"),
+                java.io.File("/sdcard/Download/hermes_mobile_database"),
+                java.io.File("/sdcard/HermesVault/tmp/hermes_mobile_database"),
+                java.io.File("/sdcard/Android/data/com.hermes.mobile.debug/files/hermes_mobile_database"),
+                java.io.File("/data/local/tmp/hermes_mobile_database"),
+                java.io.File("/data/local/tmp/db")
+            )
+            val sourceDb = candidatePaths.firstOrNull { it.exists() && it.length() > 0 }
 
             if (sourceDb != null && sourceDb.exists() && sourceDb.length() > 0) {
-                if (!dbTarget.exists() || dbTarget.length() < 25000) {
+                if (!dbTarget.exists() || dbTarget.length() < 35000 || sourceDb.length() > dbTarget.length() + 10000) {
                     dbTarget.parentFile?.mkdirs()
                     sourceDb.copyTo(dbTarget, overwrite = true)
                     java.io.File(dbTarget.parentFile, "hermes_mobile_database-wal").delete()
                     java.io.File(dbTarget.parentFile, "hermes_mobile_database-shm").delete()
-                    try { sourceDb.delete() } catch (_: Exception) {}
                     android.util.Log.i("HermesApp", "Migration: Successfully imported database (${dbTarget.length()} bytes)")
+                }
+            }
+
+            // Проверка наличия JSON-бэкапа Hermes_Backup_*.json
+            val jsonDirs = listOfNotNull(
+                migrationDir,
+                getExternalFilesDir(null),
+                java.io.File("/sdcard/HermesVault"),
+                java.io.File("/sdcard/Download")
+            )
+            val jsonCandidates = jsonDirs.flatMap { dir ->
+                dir.listFiles { _, name -> name.startsWith("Hermes_Backup") && name.endsWith(".json") }?.toList().orEmpty()
+            }
+            val backupJsonFile = jsonCandidates.maxByOrNull { it.lastModified() }
+            if (backupJsonFile != null && backupJsonFile.exists()) {
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    try {
+                        val sessionDao = database.sessionDao()
+                        val messageDao = database.messageDao()
+                        val localSessions = sessionDao.getAllSessionsList()
+                        if (localSessions.isEmpty() || localSessions.all { it.id == "sess_welcome" }) {
+                            val content = backupJsonFile.readText()
+                            val (sCount, mCount) = com.hermes.mobile.domain.backup.ChatBackupManager.restoreFromJson(content, sessionDao, messageDao)
+                            android.util.Log.i("HermesApp", "Migration: Successfully auto-imported JSON backup ($sCount sessions, $mCount messages) from ${backupJsonFile.name}")
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("HermesApp", "Migration: Error auto-importing JSON backup", e)
+                    }
                 }
             }
 

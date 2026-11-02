@@ -284,8 +284,21 @@ class DashboardRestClient(
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful && response.body != null) {
                     val bodyString = response.body!!.string()
-                    val res = json.decodeFromString<SessionListResponseDto>(bodyString)
-                    res.sessions
+                    if (!isRealJson(bodyString)) return@withContext emptyList()
+                    val elem = json.parseToJsonElement(bodyString)
+                    when (elem) {
+                        is kotlinx.serialization.json.JsonArray -> elem.mapNotNull { item ->
+                            runCatching { json.decodeFromJsonElement(SessionItemDto.serializer(), item) }.getOrNull()
+                        }
+                        is kotlinx.serialization.json.JsonObject -> {
+                            val list = elem["sessions"] as? kotlinx.serialization.json.JsonArray
+                                ?: elem["items"] as? kotlinx.serialization.json.JsonArray
+                            list?.mapNotNull { item ->
+                                runCatching { json.decodeFromJsonElement(SessionItemDto.serializer(), item) }.getOrNull()
+                            } ?: emptyList()
+                        }
+                        else -> emptyList()
+                    }
                 } else {
                     emptyList()
                 }
