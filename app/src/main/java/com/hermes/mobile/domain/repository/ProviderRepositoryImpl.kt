@@ -39,6 +39,24 @@ class ProviderRepositoryImpl(
             val savedCustom = settingsManager.getSavedCustomProviders()
 
             val deletedIds = settingsManager.deletedProviderIds.value
+
+            // 0. Синхронизируем все ключи из ~/.hermes/.env демона в keystoreManager
+            val envVars = restClient.getEnvVars()
+            for ((envKey, envVal) in envVars) {
+                if (envVal.isNotBlank()) {
+                    keystoreManager.encryptAndSave(envKey, envVal)
+                    val cleanProvName = envKey
+                        .removePrefix("HERMES_CUSTOM_")
+                        .removePrefix("HERMES_")
+                        .removeSuffix("_API_KEY")
+                        .lowercase()
+                    if (cleanProvName.isNotBlank()) {
+                        keystoreManager.encryptAndSave(cleanProvName, envVal)
+                        keystoreManager.encryptAndSave("custom_$cleanProvName", envVal)
+                    }
+                }
+            }
+
             val standardList = dtos.filterNot { dto ->
                 dto.id in deletedIds || 
                 dto.name in deletedIds || 
@@ -65,7 +83,7 @@ class ProviderRepositoryImpl(
                 ProviderConfig(
                     id = cleanId,
                     name = cleanName,
-                    status = status,
+                    status = if (hasKey) ProviderStatus.CONNECTED else status,
                     currentModel = dto.currentModel ?: dto.availableModels.firstOrNull(),
                     availableModels = dto.availableModels,
                     hasApiKey = hasKey,
@@ -77,17 +95,40 @@ class ProviderRepositoryImpl(
 
             // 1. Обогащаем провайдерами из config.yaml демона (GET /api/config -> providers)
             if (configProviders != null) {
-                for ((cfgName, pair) in configProviders) {
-                    val (cfgUrl, cfgModel) = pair
+                for ((cfgName, entry) in configProviders) {
+                    val cfgUrl = entry.baseUrl
+                    val cfgModel = entry.model
                     val cleanCfgName = cfgName.removePrefix("custom:").removePrefix("custom_")
                     if (cleanCfgName in deletedIds || cleanCfgName.lowercase() in deletedIds) continue
+
+                    if (!entry.apiKey.isNullOrBlank()) {
+                        keystoreManager.encryptAndSave(cleanCfgName, entry.apiKey)
+                        keystoreManager.encryptAndSave(cfgName, entry.apiKey)
+                        keystoreManager.encryptAndSave("custom_${cleanCfgName.lowercase()}", entry.apiKey)
+                    } else if (!entry.keyEnv.isNullOrBlank()) {
+                        val keyVal = envVars[entry.keyEnv] ?: keystoreManager.getDecrypted(entry.keyEnv)
+                        if (!keyVal.isNullOrBlank()) {
+                            keystoreManager.encryptAndSave(cleanCfgName, keyVal)
+                            keystoreManager.encryptAndSave(cfgName, keyVal)
+                            keystoreManager.encryptAndSave("custom_${cleanCfgName.lowercase()}", keyVal)
+                        } else {
+                            val revealed = restClient.revealEnvVar(entry.keyEnv)
+                            if (!revealed.isNullOrBlank()) {
+                                keystoreManager.encryptAndSave(cleanCfgName, revealed)
+                                keystoreManager.encryptAndSave(cfgName, revealed)
+                                keystoreManager.encryptAndSave("custom_${cleanCfgName.lowercase()}", revealed)
+                            }
+                        }
+                    }
+
                     val existingIndex = standardList.indexOfFirst {
                         it.name.equals(cleanCfgName, ignoreCase = true) ||
                         it.id.equals(cleanCfgName, ignoreCase = true)
                     }
                     val hasKey = keystoreManager.hasKey(cleanCfgName) ||
                         keystoreManager.hasKey(cfgName) ||
-                        keystoreManager.hasKey("custom_${cleanCfgName.lowercase()}")
+                        keystoreManager.hasKey("custom_${cleanCfgName.lowercase()}") ||
+                        (!entry.keyEnv.isNullOrBlank() && (envVars.containsKey(entry.keyEnv) || keystoreManager.hasKey(entry.keyEnv)))
                     val modelsList = if (cfgModel.isNotBlank()) listOf(cfgModel) else listOf(cleanCfgName)
                     if (existingIndex != -1) {
                         val ex = standardList[existingIndex]
@@ -96,6 +137,7 @@ class ProviderRepositoryImpl(
                             currentModel = ex.currentModel ?: cfgModel.takeIf { it.isNotBlank() },
                             availableModels = if (ex.availableModels.isNotEmpty()) ex.availableModels else modelsList,
                             hasApiKey = ex.hasApiKey || hasKey,
+                            status = if (ex.hasApiKey || hasKey) ProviderStatus.CONNECTED else ex.status,
                             isCustom = true
                         )
                     } else {
@@ -165,14 +207,20 @@ class ProviderRepositoryImpl(
                     it.id == customId || it.id == ce.name || it.name.equals(ce.name, ignoreCase = true)
                 }
                 val envKeyName = ce.apiKeyPreview?.let {
-                    val m = Regex("""\$\{([A-Za-z0-9_]+)\}""").find(it)
+                    val m = Regex("""\$\{?([A-Za-z0-9_]+)\}?""").find(it)
                     m?.groupValues?.get(1)
-                }
+                } ?: (if (ce.apiKey?.startsWith("$") == true) Regex("""\$\{?([A-Za-z0-9_]+)\}?""").find(ce.apiKey)?.groupValues?.get(1) else null)
                 if (!keystoreManager.hasKey(customId) && !keystoreManager.hasKey(ce.name) && envKeyName != null) {
-                    val revealed = restClient.revealEnvVar(envKeyName)
-                    if (!revealed.isNullOrBlank()) {
-                        keystoreManager.encryptAndSave(customId, revealed)
-                        keystoreManager.encryptAndSave(ce.name, revealed)
+                    val directVal = envVars[envKeyName]
+                    if (!directVal.isNullOrBlank()) {
+                        keystoreManager.encryptAndSave(customId, directVal)
+                        keystoreManager.encryptAndSave(ce.name, directVal)
+                    } else {
+                        val revealed = restClient.revealEnvVar(envKeyName)
+                        if (!revealed.isNullOrBlank()) {
+                            keystoreManager.encryptAndSave(customId, revealed)
+                            keystoreManager.encryptAndSave(ce.name, revealed)
+                        }
                     }
                 }
                 val hasKey = ce.hasApiKey || !ce.apiKey.isNullOrBlank() || keystoreManager.hasKey(customId) || keystoreManager.hasKey(ce.name)
@@ -839,25 +887,26 @@ class ProviderRepositoryImpl(
                 } catch (_: Exception) { emptyList() }
             }
 
-            // 1. Кастомные провайдеры: (пере)регистрируем в config.yaml с каноническим
-            //    key_env — даже если провайдер уже есть: конфиг мог быть создан с другим
-            //    key_env, тогда демон ищет ключ не под тем именем. PUT идемпотентен.
+            // 1. Кастомные провайдеры: объединяем и регистрируем ВСЕХ провайдеров в config.yaml
+            //    единым пакетом с сохранением структурированной секции model: {provider, default}.
             val configProviders = restClient.getConfigProviders()
             val customProviders = (providersToSync + savedCustomConfigs).filter { it.isCustom && !it.baseUrl.isNullOrBlank() }.distinctBy { it.name.lowercase() }
             if (configProviders != null) {
+                val mergedProviders = configProviders.toMutableMap()
                 for (prov in customProviders) {
                     val model = prov.currentModel ?: prov.availableModels.firstOrNull() ?: prov.name
                     val customName = prov.name.removePrefix("custom:").removePrefix("custom_")
-                    if (restClient.registerProviderInConfig(
-                            name = customName,
-                            baseUrl = prov.baseUrl!!,
-                            model = model,
-                            keyEnv = keyEnvNameFor(customName)
-                        )
-                    ) {
-                        appliedCount++
-                        android.util.Log.i("ProviderRepository", "sync: (re)registered provider '$customName' in daemon config")
-                    }
+                    mergedProviders[customName] = DashboardRestClient.ConfigProviderEntry(
+                        baseUrl = prov.baseUrl!!,
+                        model = model,
+                        keyEnv = keyEnvNameFor(customName)
+                    )
+                }
+                val activeProv = settingsManager.activeProvider.value.removePrefix("custom:").removePrefix("custom_").ifBlank { "novaproxy" }
+                val activeMod = settingsManager.activeModel.value.ifBlank { "glm-5.3" }
+                if (restClient.syncAllProvidersToConfig(activeProv, activeMod, mergedProviders)) {
+                    appliedCount += customProviders.size
+                    android.util.Log.i("ProviderRepository", "sync: synced ${mergedProviders.size} providers (active=$activeProv, model=$activeMod) to daemon config")
                 }
             }
 

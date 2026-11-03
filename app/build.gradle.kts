@@ -14,8 +14,8 @@ android {
         applicationId = "com.hermes.mobile"
         minSdk = 31
         targetSdk = 35
-        versionCode = 26
-        versionName = "1.0.25"
+        versionCode = 28
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -48,11 +48,9 @@ android {
             manifestPlaceholders["appName"] = "Hermes Any AI"
         }
         debug {
-            applicationIdSuffix = ".debug"
-            versionNameSuffix = "-debug"
             signingConfig = signingConfigs.getByName("release")
             isDebuggable = true
-            manifestPlaceholders["appName"] = "Hermes (Debug)"
+            manifestPlaceholders["appName"] = "Hermes Any AI"
         }
     }
 

@@ -230,8 +230,9 @@ private fun ArchivedSessionRowItem(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
+                    val cleanTitle = session.title.replace(Regex("""\[Инструкция среды:.*?(\]|\z)\s*""", RegexOption.DOT_MATCHES_ALL), "").ifBlank { "Новая беседа" }
                     Text(
-                        text = session.title,
+                        text = cleanTitle,
                         fontSize = 13.sp,
                         fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
                         maxLines = 1,
@@ -247,9 +248,10 @@ private fun ArchivedSessionRowItem(
                         )
                     }
                 }
-                if (session.lastMessagePreview.isNotBlank()) {
+                val cleanPreview = session.lastMessagePreview.replace(Regex("""\[Инструкция среды:.*?(\]|\z)\s*""", RegexOption.DOT_MATCHES_ALL), "").trim()
+                if (cleanPreview.isNotBlank()) {
                     Text(
-                        text = session.lastMessagePreview,
+                        text = cleanPreview,
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,

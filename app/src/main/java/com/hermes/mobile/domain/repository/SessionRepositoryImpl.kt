@@ -47,18 +47,47 @@ class SessionRepositoryImpl(
         scope.launch {
             val remoteSessions = restClient.getSessions()
             if (remoteSessions.isNotEmpty()) {
-                remoteSessions.forEach { dto ->
-                    val entity = SessionEntity(
-                        id = dto.id,
-                        title = dto.title,
-                        createdAtEpochMs = dto.createdAt,
-                        updatedAtEpochMs = dto.updatedAt,
-                        model = dto.model ?: "Hermes 3",
-                        isPinned = dto.isPinned,
-                        isArchived = dto.isArchived,
-                        lastMessagePreview = dto.lastMessagePreview ?: ""
-                    )
-                    sessionDao.insertSession(entity)
+                val userRemoteSessions = remoteSessions.filterNot {
+                    it.id.startsWith("cron_") || (it.title ?: "").startsWith("cron_")
+                }
+                userRemoteSessions.forEach { dto ->
+                    val rawTitle = dto.effectiveTitle
+                    val cleanTitle = rawTitle.replace(Regex("""\[Инструкция среды:.*?(\]|\z)\s*""", RegexOption.DOT_MATCHES_ALL), "").trim()
+                    val cleanPreview = (dto.effectivePreview ?: "").replace(Regex("""\[Инструкция среды:.*?(\]|\z)\s*""", RegexOption.DOT_MATCHES_ALL), "").trim()
+
+                    val existing = sessionDao.getSessionById(dto.id)
+                    if (existing != null) {
+                        val effectiveTitle = if (existing.title.isNotBlank() && existing.title != "Новая беседа") {
+                            existing.title
+                        } else {
+                            cleanTitle.ifBlank { existing.title }
+                        }
+                        val effectivePreview = if (existing.lastMessagePreview.isNotBlank()) {
+                            existing.lastMessagePreview
+                        } else {
+                            cleanPreview
+                        }
+                        val merged = existing.copy(
+                            title = effectiveTitle,
+                            lastMessagePreview = effectivePreview,
+                            hermesSessionId = dto.id
+                        )
+                        sessionDao.insertSession(merged)
+                    } else {
+                        val entity = SessionEntity(
+                            id = dto.id,
+                            title = cleanTitle.ifBlank { "Новая беседа" },
+                            createdAtEpochMs = dto.effectiveCreatedAtEpochMs,
+                            updatedAtEpochMs = dto.effectiveUpdatedAtEpochMs,
+                            model = dto.model ?: "Hermes 3",
+                            isPinned = dto.effectiveIsPinned,
+                            isArchived = dto.effectiveIsArchived,
+                            lastMessagePreview = cleanPreview,
+                            hermesSessionId = dto.id
+                        )
+                        sessionDao.insertSession(entity)
+                    }
+                    webSocketClient?.restoreHermesSession(dto.id, dto.id)
                 }
                 settingsManager?.setFirstLaunchDone()
             } else {

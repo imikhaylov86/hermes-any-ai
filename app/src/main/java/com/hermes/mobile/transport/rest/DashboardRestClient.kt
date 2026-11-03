@@ -11,6 +11,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -63,9 +64,9 @@ class DashboardRestClient(
         .build()
 
     private val probeClient = OkHttpClient.Builder()
-        .connectTimeout(3, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
-        .callTimeout(6, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(35, TimeUnit.SECONDS)
         .build()
 
     /**
@@ -144,6 +145,40 @@ class DashboardRestClient(
      * PUT /api/config: providers.<name> = {base_url, key_env, model, api_mode?}.
      * Возвращает env-имя ключа, под которое демон будет искать API-ключ.
      */
+    suspend fun syncAllProvidersToConfig(
+        activeProvider: String,
+        activeModel: String,
+        providers: Map<String, ConfigProviderEntry>
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val providersYaml = buildString {
+                append("model:\n")
+                append("  provider: ").append(activeProvider).append("\n")
+                append("  default: ").append(activeModel).append("\n")
+                append("providers:\n")
+                for ((pName, pEntry) in providers) {
+                    append("  ").append(pName).append(":\n")
+                    append("    base_url: ").append(pEntry.baseUrl).append("\n")
+                    if (!pEntry.keyEnv.isNullOrBlank()) {
+                        append("    key_env: ").append(pEntry.keyEnv).append("\n")
+                    }
+                    if (!pEntry.apiKey.isNullOrBlank()) {
+                        append("    api_key: '").append(pEntry.apiKey).append("'\n")
+                    }
+                    append("    model: ").append(pEntry.model).append("\n")
+                }
+            }
+            val rawBody = "{\"yaml_text\": ${jsonPrimitiveString(providersYaml)}}"
+                .toRequestBody("application/json".toMediaType())
+            val req = newRequestBuilder("/config/raw").put(rawBody).build()
+            client.newCall(req).execute().use { resp ->
+                resp.isSuccessful && isRealJson(resp.body?.string())
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     suspend fun registerProviderInConfig(
         name: String,
         baseUrl: String,
@@ -151,32 +186,26 @@ class DashboardRestClient(
         keyEnv: String
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            val payload = buildString {
-                append("{\"config\": {\"providers\": {")
-                append(jsonPrimitiveString(name))
-                append(": {\"base_url\": ")
-                append(jsonPrimitiveString(baseUrl))
-                append(", \"api_key\": \"\", \"key_env\": ")
-                append(jsonPrimitiveString(keyEnv))
-                append(", \"model\": ")
-                append(jsonPrimitiveString(model))
-                append("}}}}")
-            }
-            val body = payload.toRequestBody("application/json".toMediaType())
-            val request = newRequestBuilder("/config").put(body).build()
-            client.newCall(request).execute().use { response ->
-                response.isSuccessful && isRealJson(response.body?.string())
-            }
+            val existing = getConfigProviders()?.toMutableMap() ?: mutableMapOf()
+            existing[name] = ConfigProviderEntry(baseUrl = baseUrl, model = model, keyEnv = keyEnv)
+            syncAllProvidersToConfig(name, model, existing)
         } catch (_: Exception) {
             false
         }
     }
 
+    data class ConfigProviderEntry(
+        val baseUrl: String,
+        val model: String,
+        val keyEnv: String? = null,
+        val apiKey: String? = null
+    )
+
     /**
      * Текущий набор кастомных провайдеров из config демона (GET /api/config).
      * null = эндпоинт недоступен (демон не отвечает или вернул SPA HTML).
      */
-    suspend fun getConfigProviders(): Map<String, Pair<String, String>>? = withContext(Dispatchers.IO) {
+    suspend fun getConfigProviders(): Map<String, ConfigProviderEntry>? = withContext(Dispatchers.IO) {
         try {
             val request = newRequestBuilder("/config").get().build()
             client.newCall(request).execute().use { response ->
@@ -184,13 +213,15 @@ class DashboardRestClient(
                     val bodyString = response.body!!.string()
                     if (!isRealJson(bodyString)) return@withContext null
                     val root = json.parseToJsonElement(bodyString) as? JsonObject ?: return@withContext null
-                    val providers = root["providers"] as? JsonObject ?: return@withContext emptyMap<String, Pair<String, String>>()
-                    val result = mutableMapOf<String, Pair<String, String>>()
+                    val providers = root["providers"] as? JsonObject ?: return@withContext emptyMap<String, ConfigProviderEntry>()
+                    val result = mutableMapOf<String, ConfigProviderEntry>()
                     for ((name, v) in providers) {
                         val obj = v as? JsonObject ?: continue
                         val baseUrl = obj["base_url"]?.jsonPrimitive?.contentOrNull ?: ""
                         val model = obj["model"]?.jsonPrimitive?.contentOrNull ?: ""
-                        result[name] = baseUrl to model
+                        val keyEnv = obj["key_env"]?.jsonPrimitive?.contentOrNull
+                        val apiKey = obj["api_key"]?.jsonPrimitive?.contentOrNull
+                        result[name] = ConfigProviderEntry(baseUrl, model, keyEnv, apiKey)
                     }
                     result
                 } else null
@@ -198,6 +229,26 @@ class DashboardRestClient(
         } catch (_: Exception) {
             null
         }
+    }
+
+    suspend fun getEnvVars(): Map<String, String> = withContext(Dispatchers.IO) {
+        val result = mutableMapOf<String, String>()
+        val bytesResult = downloadFile(".hermes/.env")
+        bytesResult.onSuccess { bytes ->
+            val text = String(bytes, Charsets.UTF_8)
+            text.lines().forEach { line ->
+                val trimmed = line.trim()
+                if (trimmed.isNotBlank() && !trimmed.startsWith("#") && trimmed.contains("=")) {
+                    val parts = trimmed.split("=", limit = 2)
+                    val k = parts[0].trim()
+                    val v = parts[1].trim().trim('"', '\'')
+                    if (k.isNotEmpty() && v.isNotEmpty()) {
+                        result[k] = v
+                    }
+                }
+            }
+        }
+        result
     }
 
     private fun jsonPrimitiveString(s: String): String {
@@ -286,18 +337,34 @@ class DashboardRestClient(
                     val bodyString = response.body!!.string()
                     if (!isRealJson(bodyString)) return@withContext emptyList()
                     val elem = json.parseToJsonElement(bodyString)
-                    when (elem) {
-                        is kotlinx.serialization.json.JsonArray -> elem.mapNotNull { item ->
-                            runCatching { json.decodeFromJsonElement(SessionItemDto.serializer(), item) }.getOrNull()
-                        }
+                    val jsonItems: List<kotlinx.serialization.json.JsonElement> = when (elem) {
+                        is kotlinx.serialization.json.JsonArray -> elem
                         is kotlinx.serialization.json.JsonObject -> {
-                            val list = elem["sessions"] as? kotlinx.serialization.json.JsonArray
-                                ?: elem["items"] as? kotlinx.serialization.json.JsonArray
-                            list?.mapNotNull { item ->
-                                runCatching { json.decodeFromJsonElement(SessionItemDto.serializer(), item) }.getOrNull()
-                            } ?: emptyList()
+                            (elem["sessions"] as? kotlinx.serialization.json.JsonArray)
+                                ?: (elem["items"] as? kotlinx.serialization.json.JsonArray)
+                                ?: emptyList()
                         }
                         else -> emptyList()
+                    }
+                    jsonItems.mapNotNull { item ->
+                        val fromSerializer = runCatching { json.decodeFromJsonElement(SessionItemDto.serializer(), item) }.getOrNull()
+                        if (fromSerializer != null) return@mapNotNull fromSerializer
+                        val obj = item as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
+                        val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                        val title = obj["title"]?.jsonPrimitive?.contentOrNull
+                        val startedAt = obj["started_at"]?.jsonPrimitive?.doubleOrNull
+                        val lastActive = obj["last_active"]?.jsonPrimitive?.doubleOrNull
+                        val preview = obj["preview"]?.jsonPrimitive?.contentOrNull
+                            ?: obj["last_message_preview"]?.jsonPrimitive?.contentOrNull
+                        val model = obj["model"]?.jsonPrimitive?.contentOrNull
+                        SessionItemDto(
+                            id = id,
+                            title = title,
+                            startedAt = startedAt,
+                            lastActive = lastActive,
+                            preview = preview,
+                            model = model
+                        )
                     }
                 } else {
                     emptyList()

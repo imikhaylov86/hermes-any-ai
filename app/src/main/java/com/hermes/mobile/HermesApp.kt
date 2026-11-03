@@ -153,12 +153,18 @@ class HermesApp : Application(), coil.ImageLoaderFactory {
         webSocketClient = MobileWebSocketClient(endpointUrl = settingsManager.serverUrl.value)
         // G3 (03 §D6): токен в заголовке WS upgrade, не в URL
         webSocketClient.updateSessionToken(settingsManager.getSessionToken())
-        // G4 (03 §D9г): восстановление серверной сессии для resume при onOpen
+        // G4 (03 §D9г): восстановление всех серверных сессий для resume при onOpen / переключении
         webSocketClient.restoreHermesSession(settingsManager.hermesSessionId.value)
-        val lastChatId = settingsManager.getLastActiveSessionId()
-        if (!lastChatId.isNullOrBlank()) {
-            appScope.launch {
-                val lastSession = database.sessionDao().getSessionById(lastChatId)
+        appScope.launch {
+            val allSessions = database.sessionDao().getAllSessionsList()
+            for (s in allSessions) {
+                if (!s.hermesSessionId.isNullOrBlank()) {
+                    webSocketClient.restoreHermesSession(s.hermesSessionId, s.id)
+                }
+            }
+            val lastChatId = settingsManager.getLastActiveSessionId()
+            if (!lastChatId.isNullOrBlank()) {
+                val lastSession = allSessions.firstOrNull { it.id == lastChatId }
                 if (!lastSession?.hermesSessionId.isNullOrBlank()) {
                     webSocketClient.restoreHermesSession(lastSession!!.hermesSessionId, lastChatId)
                 }

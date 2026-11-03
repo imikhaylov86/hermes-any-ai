@@ -105,14 +105,39 @@ data class ClarifyResponseDto(
 @Serializable
 data class SessionItemDto(
     val id: String,
-    val title: String,
-    @SerialName("created_at") val createdAt: Long,
-    @SerialName("updated_at") val updatedAt: Long,
+    val title: String? = null,
+    @SerialName("created_at") val createdAt: Long? = null,
+    @SerialName("started_at") val startedAt: Double? = null,
+    @SerialName("updated_at") val updatedAt: Long? = null,
+    @SerialName("last_active") val lastActive: Double? = null,
     val model: String? = null,
     @SerialName("is_pinned") val isPinned: Boolean = false,
+    @SerialName("pinned") val pinned: Int = 0,
     @SerialName("is_archived") val isArchived: Boolean = false,
-    @SerialName("last_message_preview") val lastMessagePreview: String? = null
-)
+    @SerialName("archived") val archived: Int = 0,
+    @SerialName("last_message_preview") val lastMessagePreview: String? = null,
+    @SerialName("preview") val preview: String? = null,
+    @SerialName("message_count") val messageCount: Int = 0,
+    val source: String? = null
+) {
+    val effectiveTitle: String
+        get() = title?.takeIf { it.isNotBlank() } ?: "Беседа"
+
+    val effectiveCreatedAtEpochMs: Long
+        get() = createdAt ?: startedAt?.let { (it * 1000).toLong() } ?: System.currentTimeMillis()
+
+    val effectiveUpdatedAtEpochMs: Long
+        get() = updatedAt ?: lastActive?.let { (it * 1000).toLong() } ?: effectiveCreatedAtEpochMs
+
+    val effectiveIsPinned: Boolean
+        get() = isPinned || pinned > 0
+
+    val effectiveIsArchived: Boolean
+        get() = isArchived || archived > 0
+
+    val effectivePreview: String?
+        get() = lastMessagePreview ?: preview
+}
 
 @Serializable
 data class SessionListResponseDto(

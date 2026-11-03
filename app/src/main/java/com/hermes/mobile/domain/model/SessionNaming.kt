@@ -5,6 +5,7 @@ package com.hermes.mobile.domain.model
  */
 fun generateSessionTitle(content: String, attachments: List<Attachment> = emptyList()): String {
     val raw = content
+        .replace(Regex("""\[Инструкция среды:.*?(\]|\z)\s*""", RegexOption.DOT_MATCHES_ALL), "")
         .replace(Regex("""@file:[^\s]+"""), "")
         .replace(Regex("""^/[a-zA-Z0-9_\-]+"""), "")
         .trim()

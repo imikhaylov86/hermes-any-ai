@@ -51,10 +51,10 @@ interface MessageDao {
 
 @Dao
 interface SessionDao {
-    @Query("SELECT * FROM sessions ORDER BY isPinned DESC, updatedAtEpochMs DESC")
+    @Query("SELECT * FROM sessions WHERE id NOT LIKE 'cron_%' AND title NOT LIKE 'cron_%' ORDER BY isPinned DESC, updatedAtEpochMs DESC")
     fun getAllSessions(): Flow<List<SessionEntity>>
 
-    @Query("SELECT * FROM sessions ORDER BY isPinned DESC, updatedAtEpochMs DESC")
+    @Query("SELECT * FROM sessions WHERE id NOT LIKE 'cron_%' AND title NOT LIKE 'cron_%' ORDER BY isPinned DESC, updatedAtEpochMs DESC")
     suspend fun getAllSessionsList(): List<SessionEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -71,8 +71,10 @@ interface SessionDao {
 
     @Query("""
         SELECT * FROM sessions 
+        WHERE id NOT LIKE 'cron_%' AND title NOT LIKE 'cron_%'
         ORDER BY 
             isPinned DESC, 
+            CASE WHEN (SELECT COUNT(*) FROM messages WHERE sessionId = sessions.id) > 0 THEN 1 ELSE 0 END DESC,
             CASE WHEN id = 'sess_welcome' AND (SELECT COUNT(*) FROM messages WHERE sessionId = 'sess_welcome') = 0 THEN 0 ELSE 1 END DESC,
             updatedAtEpochMs DESC 
         LIMIT 1
@@ -103,7 +105,7 @@ interface SessionDao {
     @Query("SELECT * FROM sessions WHERE isArchived = 1 ORDER BY updatedAtEpochMs DESC")
     fun getArchivedSessions(): Flow<List<SessionEntity>>
 
-    @Query("SELECT * FROM sessions WHERE isArchived = 0 OR isArchived IS NULL ORDER BY isPinned DESC, updatedAtEpochMs DESC")
+    @Query("SELECT * FROM sessions WHERE (isArchived = 0 OR isArchived IS NULL) AND id NOT LIKE 'cron_%' AND title NOT LIKE 'cron_%' ORDER BY isPinned DESC, updatedAtEpochMs DESC")
     fun getActiveSessions(): Flow<List<SessionEntity>>
 
     @Query("SELECT COUNT(*) FROM sessions WHERE isArchived = 1")

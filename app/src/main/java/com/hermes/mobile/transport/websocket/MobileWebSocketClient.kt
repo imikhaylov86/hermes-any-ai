@@ -238,14 +238,14 @@ class MobileWebSocketClient(
                         webSocket = ws
                         backoffMs = 1000L
                         if (endpointUrl.contains("/api/ws")) {
-                            val sid = hermesSessionId
-                            if (sid != null) {
-                                Log.i(tag, "Hermes session $sid already established, transitioning to READY")
-                                _connectionState.value = ConnectionState.READY
-                                scope.launch {
-                                    _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = sid, activeModel = activeModel ?: ""))
-                                }
+                            val targetChat = currentSessionId ?: "sess_main"
+                            val sid = chatToServerSessionMap[targetChat] ?: hermesSessionId
+                            if (!sid.isNullOrBlank()) {
+                                Log.i(tag, "Resuming hermes session $sid for chat $targetChat on open")
+                                _connectionState.value = ConnectionState.AUTHENTICATING
+                                sendSessionResume(sid)
                             } else {
+                                Log.i(tag, "No existing hermes session for chat $targetChat, creating fresh session")
                                 _connectionState.value = ConnectionState.AUTHENTICATING
                                 sendSessionCreate()
                             }
@@ -424,10 +424,8 @@ class MobileWebSocketClient(
         Log.i(tag, "Switched session to chat=$sessionId, hermesSessionId=${targetSid?.take(8) ?: "null"}")
         if (webSocket != null && endpointUrl.contains("/api/ws")) {
             if (targetSid != null) {
-                _connectionState.value = ConnectionState.READY
-                scope.launch {
-                    _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = targetSid, activeModel = activeModel ?: ""))
-                }
+                _connectionState.value = ConnectionState.AUTHENTICATING
+                sendSessionResume(targetSid)
             } else {
                 _connectionState.value = ConnectionState.AUTHENTICATING
                 sendSessionCreate()
@@ -487,8 +485,8 @@ class MobileWebSocketClient(
                         Log.w(tag, "JSON-RPC error received: code=$errCode, message=$errMsg")
 
                         // Ошибка 4001 / 4007: Session not found / expired on daemon
-                        if (errCode == 4001 || errCode == 4007 || errMsg.contains("session not found", ignoreCase = true)) {
-                            Log.w(tag, "Hermes session expired/not found on daemon (code $errCode). Performing automatic fallback & creation...")
+                        if (errCode == 4001 || errCode == 4007 || errMsg.contains("session not found", ignoreCase = true) || errMsg.contains("session expired", ignoreCase = true)) {
+                            Log.w(tag, "Hermes session expired/not found on daemon (code $errCode, msg=$errMsg). Performing automatic fallback & creation...")
                             val targetChat = currentSessionId ?: "sess_main"
                             hermesSessionId = null
                             chatToServerSessionMap.remove(targetChat)
@@ -503,6 +501,7 @@ class MobileWebSocketClient(
                                 pendingPromptText = retryContent
                                 pendingPromptAttachments = retryAtt
                             }
+                            _connectionState.value = ConnectionState.AUTHENTICATING
                             sendSessionCreate()
                             return@launch
                         } else if (errCode == 4009 || errMsg.contains("session busy", ignoreCase = true)) {
@@ -549,14 +548,16 @@ class MobileWebSocketClient(
                         val resultElement = root["result"]
                         val resultObj = resultElement as? JsonObject
                         val newSid = resultObj?.get("session_id")?.jsonPrimitive?.contentOrNull
+                        val resumedSid = resultObj?.get("resumed")?.jsonPrimitive?.contentOrNull
                         val targetChat = currentSessionId ?: "sess_main"
                         val effectiveSid = newSid ?: hermesSessionId ?: chatToServerSessionMap[targetChat]
                         if (effectiveSid != null) {
                             hermesSessionId = effectiveSid
                             chatToServerSessionMap[targetChat] = effectiveSid
-                            onHermesSessionCreatedForChat?.invoke(targetChat, effectiveSid)
+                            val persistentSid = resumedSid ?: effectiveSid
+                            onHermesSessionCreatedForChat?.invoke(targetChat, persistentSid)
                             // G4 (03 §D9г): персист для resume при будущих reconnect
-                            onHermesSessionEstablished?.invoke(effectiveSid)
+                            onHermesSessionEstablished?.invoke(persistentSid)
                         }
                         _connectionState.value = ConnectionState.READY
                         _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = effectiveSid ?: "", activeModel = activeModel ?: ""))
@@ -591,8 +592,9 @@ class MobileWebSocketClient(
                                 _connectionState.value = ConnectionState.READY
                                 _incomingEvents.emit(WebSocketIncomingEvent.Ready(sessionId = hermesSessionId ?: "", activeModel = activeModel ?: ""))
                             }
-                            "session.created", "session.resumed" -> {
+                            "session.created", "session.resumed", "session.info" -> {
                                 val sid = payload?.get("session_id")?.jsonPrimitive?.contentOrNull
+                                    ?: params?.get("session_id")?.jsonPrimitive?.contentOrNull
                                 val targetChat = currentSessionId ?: "sess_main"
                                 val effectiveSid = sid ?: hermesSessionId ?: chatToServerSessionMap[targetChat]
                                 if (effectiveSid != null) {
@@ -821,12 +823,13 @@ class MobileWebSocketClient(
                     "$appEnvDirective\n$userText"
             }
 
+            val targetSid = hermesSessionId ?: chatToServerSessionMap[currentSessionId ?: ""] ?: sessionId
             val promptRpc = buildJsonObject {
                 put("jsonrpc", "2.0")
                 put("id", rpcCounter++)
                 put("method", "prompt.submit")
                 put("params", buildJsonObject {
-                    put("session_id", sessionId)
+                    put("session_id", targetSid)
                     put("text", effectiveText)
                 })
             }
